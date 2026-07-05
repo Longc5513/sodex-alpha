@@ -6,6 +6,7 @@ A hackathon-ready launch terminal for SoDEX built around SoSoValue research, mar
 - Product-launch route with basket builder, backtest, and launch CTA rail
 - Judges board route for hackathon presentation
 - Execution desk route for pre-trade sizing, spread, order flow, and SoDEX routing
+- Trading bot inside `/execution` that scans SoDEX depth and routes paper trades automatically
 - Diagnostics route for live SoDEX endpoint checks
 - SoSoValue API explorer with docs-aligned presets and raw JSON preview
 - Interactive left sidebar routes: Launch, Markets, Watchlist, Signals, Portfolio, Research, Settings and more
@@ -30,6 +31,7 @@ A hackathon-ready launch terminal for SoDEX built around SoSoValue research, mar
 - Open `/` or `/launch` for the product launch page.
 - Open `/judges` to present the submission scorecard and demo flow.
 - Open `/execution` to size a trade, estimate fee/slippage, and route to paper trading.
+- Keep `/execution` open to enable the trading bot, auto-scan candidates, and inspect mock fills + PnL preview.
 - Open `/diag` to verify live endpoint health and wallet readiness.
 - Open `AI Research` or `News & Insights` to probe SoSoValue presets and raw payloads.
 - Use `Alpha Signals` and `Paper Trading` to show research-to-execution flow.
