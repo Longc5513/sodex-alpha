@@ -7,3 +7,31 @@
 .brandLogo p{display:flex;flex-direction:column;gap:2px;margin:0}
 .brandLogo b{line-height:1}
 .brandLogo span{line-height:1.1}
+.launchRibbon{display:inline-flex;align-items:center;gap:10px;margin-bottom:12px;padding:7px 12px;border-radius:999px;background:linear-gradient(90deg,rgba(255,140,84,.18),rgba(122,92,255,.18));border:1px solid rgba(255,255,255,.12);color:#ffd7c8;font-size:11px;font-weight:900;letter-spacing:.12em;text-transform:uppercase}
+.launchCtas{display:flex;gap:10px;flex-wrap:wrap;position:relative;z-index:1}
+.launchCtas .miniBtn{padding:9px 12px;border-radius:999px;background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.14)}
+.executionGrid{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(320px,.95fr);gap:14px;padding:6px}
+.executionMain{padding:16px}
+.depthLadder{display:grid;gap:8px;margin-top:8px}
+.depthRow{display:grid;grid-template-columns:100px minmax(0,1fr) 100px 72px;gap:10px;align-items:center}
+.depthSide{font-weight:900;font-size:14px}
+.depthSide.buy{color:#55ff9d}
+.depthSide.sell{color:#ff94a6;text-align:right}
+.depthBar{height:10px;border-radius:999px;background:rgba(255,255,255,.06);overflow:hidden}
+.depthBar i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#2cff86,#8e7cff)}
+.depthMeta{font-variant-numeric:tabular-nums;text-align:right;color:#aebacc}
+.flowTimeline{margin-top:16px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.flowTimeline span{border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:12px 10px;text-align:center;background:rgba(255,255,255,.03);color:#d8e3f2;font-size:12px;font-weight:800}
+.riskMeter{display:grid;grid-template-columns:150px minmax(0,1fr);gap:16px;align-items:center}
+.riskRing{width:150px;height:150px;border-radius:50%;display:grid;place-items:center;background:conic-gradient(from 180deg,#2cff86 0 62%,#ffd24f 62% 82%,#ff4d63 82% 100%);position:relative}
+.riskRing:after{content:"";position:absolute;inset:14px;border-radius:50%;background:#0d1420;border:1px solid rgba(255,255,255,.08)}
+.riskRing b,.riskRing span{position:relative;z-index:1;text-align:center}
+.riskRing b{font-size:34px;line-height:1}
+.riskRing span{display:block;color:#9fb0c6;font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.12em}
+.riskBars{display:grid;gap:10px}
+.riskBars div{display:flex;align-items:center;justify-content:space-between;border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:10px 12px;background:rgba(255,255,255,.03)}
+.riskBars label{color:#95a3b7;font-size:12px}
+.riskBars strong{font-size:14px}
+.riskNote{margin:14px 2px 0;color:#aebacc;line-height:1.55}
+@media(max-width:1200px){.executionGrid{grid-template-columns:1fr}.riskMeter{grid-template-columns:1fr}.riskRing{margin:auto}.flowTimeline{grid-template-columns:1fr 1fr}}
+@media(max-width:760px){.depthRow{grid-template-columns:76px minmax(0,1fr) 76px 48px}.launchRibbon{font-size:10px;letter-spacing:.08em}.launchCtas{gap:8px}}

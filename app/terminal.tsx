@@ -88,6 +88,39 @@ function seriesStats(series: number[]) {
   };
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function formatBp(value: number) {
+  return `${value >= 0 ? '+' : ''}${value.toFixed(1)} bps`;
+}
+
+function deriveSpread(asset: Asset, confidence: number) {
+  const volumeFactor = asset.volume24h ? 180000 / Math.max(asset.volume24h, 1) : 0.24;
+  const signalFactor = confidence < 70 ? 0.2 : confidence < 82 ? 0.12 : 0.06;
+  return clamp(volumeFactor + signalFactor, 0.04, 0.92);
+}
+
+function buildDepth(asset: Asset, spreadPct: number) {
+  const mid = asset.price || 0;
+  const base = Math.max(mid, 1);
+  return Array.from({ length: 5 }, (_, index) => {
+    const level = index + 1;
+    const step = spreadPct * level * 0.0025 * base;
+    const bid = base - step;
+    const ask = base + step;
+    const liquidity = clamp(100 - level * 11 + (asset.confidence - 60), 18, 100);
+    return {
+      level,
+      bid,
+      ask,
+      size: (asset.volume24h || base * 1000) / (level * 18),
+      liquidity
+    };
+  });
+}
+
 function BasketBacktest({assets}:{assets:Asset[]}) {
   const [mode, setMode] = useState<'Core'|'Momentum'|'ValueChain'>('Core');
   const baskets: Record<'Core'|'Momentum'|'ValueChain', { symbols: string[]; weights: number[]; title: string; note: string }> = {
@@ -146,7 +179,7 @@ function LaunchPanel(props:any){
   const {assets, main, onPick, wallet, watchlist, toggleWatch, positions, addTrade}=props;
   const focus = main || assets[0] || null;
   const marketCap=assets.reduce((s:number,a:Asset)=>s+(a.marketCap||0),0), volume=assets.reduce((s:number,a:Asset)=>s+(a.volume24h||0),0);
-  return <><section className="topGrid"><div className="hero panel"><div><h1>SoDEX <span>Alpha Launch</span></h1><p>One-person on-chain finance business built on SoSoValue research and SoDEX execution.</p><div className="heroStats"><MiniStat label="Research" value="Live"/><MiniStat label="Monitoring" value="24/7"/><MiniStat label="Modules" value="Launch"/><MiniStat label="Wallet" value={wallet?'ON':'READY'}/></div></div><div className="orb"><span>◇</span></div></div><div className="overview panel"><div className="panelTitle"><b>Market Overview</b><a>Live</a></div><div className="gauge"><div><b>78</b><span>Launch</span></div></div><ul><li><span>BTC Dominance</span><b>54.63%</b><em className="red">-0.21%</em></li><li><span>Total Market Cap</span><b>{usd(marketCap)}</b><em className="green">+1.45%</em></li><li><span>24H Volume</span><b>{usd(volume)}</b><em className="green">+6.21%</em></li></ul></div></section><section className="contentGrid"><div className="leftCol"><MarketTable assets={assets} onPick={onPick} watchlist={watchlist} toggleWatch={toggleWatch}/>{focus?<Candles active={focus}/>:<section className="panel" style={{padding:'18px'}}><div className="panelTitle"><b>Chart loading</b><a>Waiting for market data</a></div><p style={{color:'#aebacc'}}>Fetching SoDEX rows now. The launch chart will appear as soon as the live assets land.</p></section>}</div><aside className="rightCol"><Signals assets={assets}/><PortfolioPanel assets={assets} wallet={wallet} positions={positions}/><section className="index panel"><div className="panelTitle"><b>SoSoValue Index Stack</b><a>Research rail</a></div><h3>SSI / MAGI7 <em className="green">active</em></h3><Spark data={[10,12,14,16,19,17,21,25,28,31,29,35,38,41,39,44,49,53]} height={92}/></section></aside></section><section className="single"><div className="featureGrid"><article><b>Live feed</b><p>SoDEX market data keeps the watchlist, signals, and order routing honest.</p></article><article><b>Research stack</b><p>SoSoValue console links sit beside the terminal so the product story feels official.</p></article><article><b>Execution path</b><p>Paper trading and browser wallet flows prove the path from idea to action.</p></article></div><BasketBacktest assets={assets}/></section></>
+  return <><section className="topGrid"><div className="hero panel"><div><div className="launchRibbon">HACKATHON READY · SoSoValue x SoDEX · One operator launch desk</div><h1>SoDEX <span>Alpha Launch</span></h1><p>One-person on-chain finance business built on SoSoValue research, SoDEX market data, and fast paper execution.</p><div className="heroStats"><MiniStat label="Research" value="Live"/><MiniStat label="Monitoring" value="24/7"/><MiniStat label="Modules" value="Launch"/><MiniStat label="Wallet" value={wallet?'ON':'READY'}/></div><div className="launchCtas"><a className="miniBtn" href="/execution">Open Execution Desk</a><a className="miniBtn" href="/diag">Run Live Checks</a><a className="miniBtn" href={SOSOVALUE_CONSOLE_URL} target="_blank" rel="noreferrer">SoSoValue Console</a></div></div><div className="orb"><span>◇</span></div></div><div className="overview panel"><div className="panelTitle"><b>Market Overview</b><a>Live</a></div><div className="gauge"><div><b>78</b><span>Launch</span></div></div><ul><li><span>BTC Dominance</span><b>54.63%</b><em className="red">-0.21%</em></li><li><span>Total Market Cap</span><b>{usd(marketCap)}</b><em className="green">+1.45%</em></li><li><span>24H Volume</span><b>{usd(volume)}</b><em className="green">+6.21%</em></li></ul></div></section><section className="contentGrid"><div className="leftCol"><MarketTable assets={assets} onPick={onPick} watchlist={watchlist} toggleWatch={toggleWatch}/>{focus?<Candles active={focus}/>:<section className="panel" style={{padding:'18px'}}><div className="panelTitle"><b>Chart loading</b><a>Waiting for market data</a></div><p style={{color:'#aebacc'}}>Fetching SoDEX rows now. The launch chart will appear as soon as the live assets land.</p></section>}</div><aside className="rightCol"><Signals assets={assets}/><PortfolioPanel assets={assets} wallet={wallet} positions={positions}/><section className="index panel"><div className="panelTitle"><b>SoSoValue Index Stack</b><a>Research rail</a></div><h3>SSI / MAGI7 <em className="green">active</em></h3><Spark data={[10,12,14,16,19,17,21,25,28,31,29,35,38,41,39,44,49,53]} height={92}/></section></aside></section><section className="single"><div className="featureGrid"><article><b>Live feed</b><p>SoDEX market data keeps the watchlist, signals, and order routing honest.</p></article><article><b>Research stack</b><p>SoSoValue console links sit beside the terminal so the product story feels official.</p></article><article><b>Execution path</b><p>Paper trading and browser wallet flows prove the path from idea to action.</p></article></div><BasketBacktest assets={assets}/></section></>
 }
 
 function JudgesPanel(props:any) {
@@ -204,15 +237,25 @@ function ExecutionDesk(props:any) {
   const [budget, setBudget] = useState(1000);
   const [riskPct, setRiskPct] = useState(1.5);
   const [side, setSide] = useState<'BUY' | 'SELL'>('BUY');
+  const [flowBias, setFlowBias] = useState<'Aggressive' | 'Balanced' | 'Patient'>('Balanced');
 
   const asset = tradable.find((item: Asset) => item.symbol === symbol) || tradable[0] || null;
   const price = asset?.price || 0;
   const qty = price > 0 ? budget / price : 0;
-  const expectedSlippage = Math.min(0.65, Math.max(0.05, (asset?.volume24h ? 120000 / Math.max(asset.volume24h, 1) : 0.35)));
+  const spreadPct = asset ? deriveSpread(asset, asset.confidence) : 0.2;
+  const expectedSlippage = clamp(spreadPct * (flowBias === 'Aggressive' ? 1.2 : flowBias === 'Patient' ? 0.75 : 1), 0.04, 1.1);
   const estFee = budget * 0.0008;
   const riskUsd = budget * (riskPct / 100);
   const stopDistance = price > 0 ? riskUsd / Math.max(qty, 0.000001) : 0;
-  const takeDistance = stopDistance * 1.85;
+  const takeDistance = stopDistance * (flowBias === 'Aggressive' ? 1.55 : flowBias === 'Patient' ? 2.25 : 1.85);
+  const depth = asset ? buildDepth(asset, spreadPct) : [];
+  const marketImpact = clamp((qty * price) / Math.max(asset?.volume24h || 200000, 1) * 100, 0.03, 4.5);
+  const tradePlan = [
+    { label: 'Research gate', value: asset?.signal || 'N/A', note: 'SoSoValue signal context' },
+    { label: 'Entry size', value: qty.toFixed(4), note: 'Budget / price' },
+    { label: 'Spread', value: formatBp(spreadPct * 100), note: 'Approx. effective spread' },
+    { label: 'Impact', value: `${marketImpact.toFixed(2)}%`, note: 'Estimated market impact' }
+  ];
 
   const planTrade = () => {
     if (!asset?.price) return;
@@ -230,7 +273,13 @@ function ExecutionDesk(props:any) {
           <a>SoDEX-ready trade planner</a>
         </div>
         <div className="featureGrid">
-          <article><b>Pre-trade check</b><p>Route a trade only after size, fee, and slippage are visible.</p></article>
+          <article><b>{asset?.symbol || '—'}</b><p>Currently selected asset</p></article>
+          <article><b>{asset?.pair || '—'}</b><p>Trading pair</p></article>
+          <article><b>{asset?.confidence || 0}%</b><p>Signal confidence</p></article>
+          <article><b>{flowBias}</b><p>Execution profile</p></article>
+        </div>
+        <div className="featureGrid" style={{ marginTop: '14px' }}>
+          <article><b>Pre-trade check</b><p>Route a trade only after size, fee, spread, and impact are visible.</p></article>
           <article><b>Signal context</b><p>Uses the current SoDEX row and SoSoValue signals already on the page.</p></article>
           <article><b>Execution path</b><p>One click routes the idea into paper trading for demo safety.</p></article>
         </div>
@@ -252,6 +301,13 @@ function ExecutionDesk(props:any) {
           <label>Risk %
             <input type="number" step="0.1" value={riskPct} onChange={(e) => setRiskPct(Number(e.target.value))} />
           </label>
+          <label>Flow
+            <select value={flowBias} onChange={(e) => setFlowBias(e.target.value as 'Aggressive' | 'Balanced' | 'Patient')}>
+              <option value="Aggressive">Aggressive</option>
+              <option value="Balanced">Balanced</option>
+              <option value="Patient">Patient</option>
+            </select>
+          </label>
         </div>
         <div className="featureGrid" style={{ marginTop: '14px' }}>
           <article><b>{usd(price)}</b><p>Mid price</p></article>
@@ -260,14 +316,55 @@ function ExecutionDesk(props:any) {
           <article><b>{expectedSlippage.toFixed(2)}%</b><p>Est. slippage</p></article>
         </div>
         <div className="featureGrid" style={{ marginTop: '14px' }}>
-          <article><b>{usd(riskUsd)}</b><p>Risk budget</p></article>
-          <article><b>{usd(stopDistance)}</b><p>Suggested stop distance</p></article>
-          <article><b>{usd(takeDistance)}</b><p>Suggested take profit distance</p></article>
-          <article><b>{asset?.signal || 'N/A'} · {asset?.confidence || 0}%</b><p>SoDEX signal context</p></article>
+          {tradePlan.map((item) => <article key={item.label}><b>{item.value}</b><p>{item.label} · {item.note}</p></article>)}
+        </div>
+        <div className="executionGrid">
+          <section className="panel executionMain">
+            <div className="panelTitle">
+              <b>Order Flow</b>
+              <a>{asset?.symbol || '—'} depth</a>
+            </div>
+            <div className="depthLadder">
+              {depth.map((level) => (
+                <div className="depthRow" key={level.level}>
+                  <span className="depthSide buy">{level.bid.toFixed(2)}</span>
+                  <span className="depthBar"><i style={{ width: `${level.liquidity}%` }} /></span>
+                  <span className="depthSide sell">{level.ask.toFixed(2)}</span>
+                  <span className="depthMeta">{level.size.toFixed(0)}</span>
+                </div>
+              ))}
+            </div>
+            <div className="flowTimeline">
+              <span>SoSoValue signal</span>
+              <span>SoDEX spread check</span>
+              <span>Risk gate</span>
+              <span>Paper route</span>
+            </div>
+          </section>
+          <section className="panel executionMain">
+            <div className="panelTitle">
+              <b>Risk Panel</b>
+              <a>Execution safety</a>
+            </div>
+            <div className="riskMeter">
+              <div className="riskRing">
+                <b>{Math.max(0, 100 - Math.round(marketImpact * 18))}</b>
+                <span>Risk score</span>
+              </div>
+              <div className="riskBars">
+                <div><label>Risk budget</label><strong>{usd(riskUsd)}</strong></div>
+                <div><label>Stop distance</label><strong>{usd(stopDistance)}</strong></div>
+                <div><label>Take profit</label><strong>{usd(takeDistance)}</strong></div>
+                <div><label>Market impact</label><strong>{marketImpact.toFixed(2)}%</strong></div>
+              </div>
+            </div>
+            <p className="riskNote">This panel keeps the demo honest: it shows whether the trade should be routed now, staged smaller, or held back.</p>
+          </section>
         </div>
         <div className="toolBar" style={{ paddingLeft: 0, paddingRight: 0, marginTop: '14px' }}>
           <button className="miniBtn" onClick={planTrade}>Send to paper trading</button>
           <span className="miniBtn">Best for demoing execution logic before live orders</span>
+          <a className="miniBtn" href="/diag">Cross-check stack</a>
         </div>
       </section>
     </div>

@@ -1,11 +1,11 @@
-# SoDEX Alpha Terminal
+# SoDEX Alpha Launch
 
-Real interactive SoDEX-style alpha terminal.
+A hackathon-ready launch terminal for SoDEX built around SoSoValue research, market execution, and demo-safe paper trading.
 
 ## Features
-- Product-launch route with basket builder and backtest
+- Product-launch route with basket builder, backtest, and launch CTA rail
 - Judges board route for hackathon presentation
-- Execution desk route for pre-trade sizing and SoDEX routing
+- Execution desk route for pre-trade sizing, spread, order flow, and SoDEX routing
 - Diagnostics route for live SoDEX endpoint checks
 - SoSoValue API explorer with docs-aligned presets and raw JSON preview
 - Interactive left sidebar routes: Launch, Markets, Watchlist, Signals, Portfolio, Research, Settings and more
@@ -17,6 +17,13 @@ Real interactive SoDEX-style alpha terminal.
 - SoSoValue API base URL stays in Vercel env only: `SOSOVALUE_API_BASE_URL`
 - Music player controls
 - Trading terminal UI inspired by SoDEX / SoSoValue Wave 2
+
+## Why This Fits The Hackathon
+
+- Shows a real research-to-execution loop instead of a static dashboard.
+- Uses SoSoValue deeply for research exploration and SoDEX deeply for market + execution workflows.
+- Gives judges a dedicated `/judges` route and a `/diag` route that proves the stack is live.
+- Uses `/execution` to explain trade sizing, spread, slippage, and risk before route-to-paper.
 
 ## Demo Flow
 
