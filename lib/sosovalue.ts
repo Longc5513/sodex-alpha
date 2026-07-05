@@ -34,11 +34,13 @@ export function buildSosoUrl(path: string, params: AnyRecord = {}) {
   if (!baseUrl) {
     throw new Error('SOSOVALUE_API_BASE_URL is not configured');
   }
+  const pathParamKeys = Array.from(path.matchAll(/\{([^}]+)\}/g)).map((match) => match[1]);
   const expanded = expandPresetPath(path, params);
-  const url = new URL(expanded.startsWith('/') ? expanded : `/${expanded}`, baseUrl);
+  const relativePath = expanded.replace(/^\/+/, '');
+  const url = new URL(relativePath, `${baseUrl}/`);
   Object.entries(params).forEach(([key, value]) => {
     if (value === undefined || value === null || value === '') return;
-    if (expanded.includes(`{${key}}`)) return;
+    if (pathParamKeys.includes(key)) return;
     url.searchParams.set(key, String(value));
   });
   return url.toString();
