@@ -370,7 +370,7 @@ function sosoHealthSummary(runtime: any) {
 }
 
 function buildDecisionCurve(rows: DecisionLogEntry[]) {
-  if (!rows.length) return [0, 1, 3, 4, 7, 10];
+  if (!rows.length) return [];
   const ordered = rows.slice().reverse();
   let running = 0;
   return ordered.map((row) => {
@@ -398,6 +398,7 @@ function QuantCycleRail({ activeStage }: { activeStage: number }) {
 function QuantDecisionTree({ asset, confidence, spreadBps, candidate, newsTitle }: { asset: Asset | null; confidence: number; spreadBps: number | null; candidate: string; newsTitle: string }) {
   const nodeText = newsTitle ? 'News + macro catalyst' : 'Macro / SSI scan';
   const edgeLabel = spreadBps !== null ? `${formatBp(spreadBps)} spread` : 'spread loading';
+  const paceLabel = spreadBps !== null ? `$${Math.max(48, Math.round(220 - spreadBps * 9))}/HR` : 'awaiting live spread';
   return <section className="quantCard quantTreeCard">
     <div className="quantCardHead"><b>Strategy Decision Tree</b><span>every trade traced</span></div>
     <div className="quantTree">
@@ -418,7 +419,7 @@ function QuantDecisionTree({ asset, confidence, spreadBps, candidate, newsTitle 
       </div>
       <div className="quantTreeCol end">
         <div className="quantNode success">PnL</div>
-        <div className="quantPace"><small>pace</small><b>{spreadBps !== null ? `$${Math.max(48, Math.round(220 - spreadBps * 9))}/HR` : '$148/HR'}</b><small>{edgeLabel}</small></div>
+        <div className="quantPace"><small>pace</small><b>{paceLabel}</b><small>{edgeLabel}</small></div>
       </div>
     </div>
   </section>;
@@ -479,10 +480,24 @@ function QuantHeroBoard(props: any) {
   const { assets, main, overview, wallet, decisionLog, drafts, positions } = props;
   const focus = main || assets[0] || null;
   const leader = assets.slice().sort((a: Asset, b: Asset) => scoreBotCandidate(b, 'Research') - scoreBotCandidate(a, 'Research'))[0] || null;
-  const cycleStage = stageForCycle(leader?.confidence || 62, null, Boolean(drafts?.length));
+  const cycleStage = stageForCycle(leader?.confidence || 0, null, Boolean(drafts?.length));
   const curve = buildDecisionCurve(decisionLog || []);
-  const liveRank = Math.max(1, 12 - Math.round((overview?.breadthPct || 45) / 9));
-  const sessionDelta = curve[curve.length - 1] || 214;
+  const hasLiveAssets = assets.length > 0;
+  const liveRank = overview?.breadthPct != null ? Math.max(1, 12 - Math.round(overview.breadthPct / 9)) : null;
+  const sessionDelta = curve.length ? curve[curve.length - 1] || 0 : 0;
+  const totalDecisions = decisionLog?.length || 0;
+  const totalTrades = positions?.length || 0;
+  const winRate = totalDecisions
+    ? (decisionLog || []).filter((row: DecisionLogEntry) => /submitted|routed|pass/i.test(row.outcome)).length / totalDecisions * 100
+    : null;
+  const avgConfidence = assets.length ? assets.reduce((sum: number, asset: Asset) => sum + asset.confidence, 0) / assets.length : null;
+  const topLine = hasLiveAssets ? [
+    `breadth ${overview?.breadthPct != null ? `${Math.round(overview.breadthPct)}%` : '—'}`,
+    `tracked ${assets.length} markets`,
+    `volume ${usd(overview?.totalVolume24h ?? null)}`,
+    liveRank ? `rotation #${liveRank}` : 'rotation loading',
+    leader ? `leader ${leader.symbol}` : 'leader loading'
+  ] : ['awaiting live market feed', 'waiting for SoDEX rows', 'waiting for SoSoValue context'];
   return <section className="quantBoard">
     <div className="quantHeader">
       <div><b>CLAUDE x QUANT</b><span>SoSoValue / SoDEX / builder desk</span></div>
@@ -490,36 +505,32 @@ function QuantHeroBoard(props: any) {
       <div><b>{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</b><span>UTC+7</span></div>
     </div>
     <div className="quantTopline">
-      <span>#1 builder flow</span>
-      <span>top {Math.max(0.01, ((leader?.confidence || 60) / 1000)).toFixed(2)}%</span>
-      <span>beating {Math.round((overview?.totalVolume24h || 0) / 340)} flows</span>
-      <span>rank +{17}</span>
-      <span>out-performing #{liveRank} by {usd(Math.abs(sessionDelta) * 92)}</span>
+      {topLine.map((item) => <span key={item}>{item}</span>)}
     </div>
     <div className="quantMarketTape">
-      {assets.slice(0, 5).map((asset: Asset) => <span key={asset.symbol}><b>{asset.symbol}</b> {asset.change24h >= 0 ? '▲' : '▼'} {pct(Math.abs(asset.change24h))}</span>)}
+      {assets.length ? assets.slice(0, 5).map((asset: Asset) => <span key={asset.symbol}><b>{asset.symbol}</b> {asset.change24h >= 0 ? '▲' : '▼'} {pct(Math.abs(asset.change24h))}</span>) : <span><b>Live feed</b> waiting for `/api/market`</span>}
     </div>
     <div className="quantTopGrid">
       <section className="quantCard metric">
-        <div className="quantWallet"><b>{wallet?.address ? short(wallet.address) : '0xce25...398144'}</b><span>{wallet ? 'verified' : 'demo mode'}</span></div>
-        <div className="quantBig">{usd(Math.abs(sessionDelta) * 112 + 234723)}</div>
-        <div className="quantSubline">all-time desk PnL · {decisionLog?.length || 42} decisions · live SoDEX / SoSoValue rail</div>
+        <div className="quantWallet"><b>{wallet?.address ? short(wallet.address) : 'wallet offline'}</b><span>{wallet ? 'verified' : 'connect to trade'}</span></div>
+        <div className="quantBig">{usd(sessionDelta)}</div>
+        <div className="quantSubline">decision trail PnL from recorded actions only · no synthetic venue fills</div>
         <div className="quantStatGrid">
-          <div><small>Trades</small><b>{(positions?.length || 30) + (decisionLog?.length || 0)}</b></div>
-          <div><small>Win rate</small><b>{`${Math.max(51, Math.min(74, leader?.confidence || 56)).toFixed(1)}%`}</b></div>
-          <div><small>Avg R/R</small><b>{(1.6 + (leader?.confidence || 60) / 26).toFixed(2)}</b></div>
+          <div><small>Decisions</small><b>{totalDecisions}</b></div>
+          <div><small>Paper trades</small><b>{totalTrades}</b></div>
+          <div><small>Win rate</small><b>{winRate != null ? `${winRate.toFixed(1)}%` : '—'}</b></div>
         </div>
       </section>
       <section className="quantCard metric">
-        <div className="quantCardHead"><b>Biggest Edge</b><span>verified</span></div>
-        <div className="quantEdge">{leader?.symbol || 'BTC'} x{Math.max(12, Math.round((leader?.confidence || 66) * 1.4))}</div>
+        <div className="quantCardHead"><b>Best Live Candidate</b><span>{leader ? 'ranked from live tape' : 'waiting for feed'}</span></div>
+        <div className="quantEdge">{leader ? `${leader.symbol} x${Math.max(1, Math.round(leader.confidence / 10))}` : 'NO FEED'}</div>
         <div className="quantStatGrid">
           <div><small>Entry</small><b>{usd(leader?.price || null)}</b></div>
           <div><small>Alpha</small><b>{usd((leader?.volume24h || 0) / 12)}</b></div>
-          <div><small>Regime</small><b>{leader?.signal || 'WATCH'}</b></div>
+          <div><small>Regime</small><b>{leader?.signal || '—'}</b></div>
           <div><small>Depth</small><b>{usd((leader?.volume24h || 0) / 4)}</b></div>
-          <div><small>Hold</small><b>{`${Math.max(4, Math.round((leader?.confidence || 60) / 16))}h`}</b></div>
-          <div><small>Macro</small><b>{overview?.breadthPct && overview.breadthPct > 50 ? 'risk-on' : 'mixed'}</b></div>
+          <div><small>Confidence</small><b>{leader ? `${leader.confidence}%` : '—'}</b></div>
+          <div><small>Macro</small><b>{overview?.breadthPct != null ? (overview.breadthPct > 50 ? 'risk-on' : 'mixed') : 'loading'}</b></div>
         </div>
       </section>
       <section className="quantCard metric chart">
@@ -534,12 +545,12 @@ function QuantHeroBoard(props: any) {
         <QuantRobustness assets={assets} />
         <section className="quantCard">
           <div className="quantCardHead"><b>PnL Growth</b><span>all-time</span></div>
-          <div className="quantCurve">
+          {curve.length ? <div className="quantCurve">
             <svg viewBox="0 0 100 100" preserveAspectRatio="none">
               <polyline points={seriesToPolyline(curve, 100, 100)} fill="none" stroke="#44cf8a" strokeWidth="2.2" />
             </svg>
-            <div className="quantCurveLabel">{usd(Math.abs(sessionDelta) * 112 + 234723)}</div>
-          </div>
+            <div className="quantCurveLabel">{usd(sessionDelta)}</div>
+          </div> : <div className="quantChartFallback">Awaiting decision history.</div>}
         </section>
         <QuantMonteCarlo assets={assets} />
         <QuantLiveFeed rows={decisionLog || []} />
@@ -1685,12 +1696,42 @@ function NewsFeedPanel() {
 
 function DecisionLogPage({ assets }: { assets: Asset[] }) {
   const [rows, setRows] = useLocal<DecisionLogEntry[]>('sodex.decision.log', []);
+  const routed = rows.filter((row) => /submitted|routed/i.test(row.outcome)).length;
+  const blocked = rows.filter((row) => /blocked/i.test(row.outcome)).length;
+  const newsLinked = rows.filter((row) => row.newsTitle).length;
   return (
     <div className="single">
       <section className="panel" style={{ padding: '18px' }}>
         <div className="panelTitle">
           <b>Decision Log</b>
           <a>{rows.length} decisions recorded</a>
+        </div>
+        <section className="executionHero decisionHero">
+          <div className="executionHeroMain">
+            <div className="executionRibbon">AUDIT TRAIL · SIGNAL PROVENANCE · COUNTERFACTUAL PNL</div>
+            <h2>Every decision is explainable from signal to route outcome</h2>
+            <p>This page is where a judge can inspect whether the app actually turns SoSoValue context and SoDEX market state into accountable execution decisions.</p>
+          </div>
+          <div className="executionHeroSide">
+            <div className="executionHeroStage">
+              <small>Recorded actions</small>
+              <b>{rows.length}</b>
+              <span>Local builder audit trail for the current browser session.</span>
+            </div>
+            <div className="executionHeroPnl">
+              <small>News linked</small>
+              <b>{newsLinked}</b>
+              <span>{blocked} blocked by risk gate · {routed} routed or submitted</span>
+            </div>
+          </div>
+        </section>
+        <div className="executionHeroGrid">
+          <article><small>Routed / live</small><b>{routed}</b></article>
+          <article><small>Blocked</small><b className={blocked ? 'red' : ''}>{blocked}</b></article>
+          <article><small>News linked</small><b>{newsLinked}</b></article>
+          <article><small>Macro tagged</small><b>{rows.filter((row) => row.macroEvents?.length).length}</b></article>
+          <article><small>Depth captured</small><b>{rows.filter((row) => row.depthUsd).length}</b></article>
+          <article><small>Venue context</small><b>{rows.filter((row) => row.spreadBps !== null).length}</b></article>
         </div>
         <div className="featureGrid">
           <article><b>Signal provenance</b><p>Each row stores signal reason, SoDEX spread/depth, and SoSoValue context.</p></article>
@@ -2593,6 +2634,25 @@ function Heatmap({assets,onPick,openMenu}:any){
         <b>Market Heatmap</b>
         <a>Full-screen treemap size = {heatmapSizeLabel(sizeMode)}, color = {colorMode === '24h' ? '24H move' : '7D move'}</a>
       </div>
+      <section className="executionHero heatmapHero">
+        <div className="executionHeroMain">
+          <div className="executionRibbon">SECTOR TREEMAP · DEPTH TOOLTIP · EXECUTION JUMP</div>
+          <h2>Browse the SoDEX venue universe like a sector map, then jump straight into execution</h2>
+          <p>Tile size tracks liquidity, tile color tracks momentum, and each hover can expose spread, signal, and visible orderbook depth before routing the symbol into the execution desk.</p>
+        </div>
+        <div className="executionHeroSide">
+          <div className="executionHeroStage">
+            <small>Universe</small>
+            <b>{visibleAssets.length}</b>
+            <span>{groups.length} sectors on screen · grouped from live SoDEX market rows.</span>
+          </div>
+          <div className="executionHeroPnl">
+            <small>Execution candidate</small>
+            <b>{executionCandidate?.symbol || '—'}</b>
+            <span>{executionCandidate ? `Top blended trend / liquidity score · ${executionCandidate.signal}` : 'Waiting for live markets.'}</span>
+          </div>
+        </div>
+      </section>
       <div className="toolBar" style={{ paddingLeft: 0, paddingRight: 0 }}>
         <input value={search} onChange={(e)=>setSearch(e.target.value)} placeholder="Search token, sector, theme" />
         <span className="miniBtn">{visibleAssets.length} tokens on screen</span>
@@ -2641,6 +2701,10 @@ function Heatmap({assets,onPick,openMenu}:any){
         </article>
       </div>
       <div className="heatmapStage">
+        {!visibleAssets.length ? <div className="heatmapEmpty">
+          <b>No live heatmap tiles yet</b>
+          <p>Waiting for `/api/market` to return SoDEX venue rows. Once the market feed lands, this screen expands into a full treemap and click-to-execution surface.</p>
+        </div> : null}
         {sectorRects.map((sectorRect) => {
           const group = sectorRect.item;
           const assetRects = buildTreemapRects(group.rows.map((asset) => ({ item: asset, weight: Math.max(heatmapWeight(asset, sizeMode), 1) })));
