@@ -140,6 +140,10 @@
 .heatmapPulse small{display:block;color:#90a1b8;font-size:11px;text-transform:uppercase;letter-spacing:.08em}
 .heatmapPulse b{display:block;margin-top:8px;font-size:24px}
 .heatmapPulse p{margin:8px 0 14px;color:#afbdd1;line-height:1.5}
+.decisionCounter{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:4px}
+.decisionCounter div{padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03)}
+.decisionCounter small{display:block;color:#8ea0b8;font-size:11px;text-transform:uppercase;letter-spacing:.06em}
+.decisionCounter b{display:block;margin-top:6px;font-size:15px}
 @keyframes floatGlow{0%{transform:translate3d(0,0,0) scale(1)}100%{transform:translate3d(-1.5%,1.5%,0) scale(1.06)}}
 @keyframes shineSweep{0%{transform:translateX(-22%)}100%{transform:translateX(20%)}}
 @keyframes riseIn{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
@@ -148,4 +152,5 @@
 @media(max-width:1200px){.executionGrid{grid-template-columns:1fr}.riskMeter{grid-template-columns:1fr}.riskRing{margin:auto}.flowTimeline{grid-template-columns:1fr 1fr}.judgeHeroCard{flex-direction:column}.heatmapToolbar,.heatmapSummary,.heatmapPulse{grid-template-columns:1fr}.heatmapStage{height:1100px}}
 @media(max-width:760px){.depthRow{grid-template-columns:76px minmax(0,1fr) 76px 48px}.launchRibbon{font-size:10px;letter-spacing:.08em}.launchCtas{gap:8px}.judgeHeroCard h3{font-size:20px}.fillHeader,.fillRow{grid-template-columns:56px minmax(0,1fr) 1fr 1fr}.pnlStats{grid-template-columns:1fr}.heroVisual{min-width:0;margin-top:20px}.heroVisualFrame{width:100%;max-width:320px}.compactBar{grid-template-columns:1fr}.launchTheme{margin-bottom:10px}.heatmapTreemap{height:340px}.heatmapTile{padding:10px}.heatmapTile b{font-size:18px}.heatmapStage{height:980px;min-height:980px}.heatmapTooltip{display:none}}
 .coinIconImg,.assetIconImg{width:24px;height:24px;border-radius:50%;display:block;object-fit:cover;background:#101725;border:1px solid rgba(255,255,255,.08);box-shadow:0 0 14px rgba(255,148,81,.16)}
+.tokenFallback{width:24px;height:24px;border-radius:50%;display:grid!important;place-items:center!important;background:linear-gradient(135deg,#ff9f5c,#6c63ff 58%,#152238)!important;color:#fff!important;font-style:normal;font-size:10px;font-weight:900;letter-spacing:.03em;border:1px solid rgba(255,255,255,.1);box-shadow:0 0 14px rgba(128,109,255,.18)}
 .assetIcon{overflow:hidden}

@@ -119,6 +119,7 @@ Wave 2 additions inside this screen:
 
 - Smart Money Watch for custom peer wallets
 - peer benchmark / trader scorecard
+- mini leaderboard for best timing / best sizing / best discipline
 - counterfactual PnL replay with skip-bad-trades overlay
 
 ### 6. Decision Log
@@ -133,6 +134,7 @@ Every meaningful action can be traced:
 - SoDEX spread and depth context
 - risk gate result
 - execution outcome
+- counterfactual "if skipped" overlay against current live marks
 
 This is useful both for judging and for builder transparency.
 
@@ -149,6 +151,7 @@ This is useful both for judging and for builder transparency.
 | Decision provenance | `/decision-log` | Explainability and audit trail |
 | Live venue state | `/portfolio-live` | Wallet-linked SoDEX account reads |
 | Smart money watch | `/api/smart-money` | Multi-wallet SoDEX peer watch and scorecard |
+| Heatmap | `/heatmap` | Full-screen SoDEX market treemap across a broad token universe |
 | Diagnostics | `/diag` | Health checks for the stack |
 | SoSoValue research probe | `/ai-research` | Docs-aligned preset explorer for SoSoValue APIs |
 | Market API | `/api/market` | Server-side live market aggregation |
@@ -208,6 +211,7 @@ That distinction matters.
 Live data is fetched from SoSoValue or SoDEX for:
 
 - market rows
+- broad SoDEX token universe for heatmap / screener / execution surfacing
 - orderbook and trade context
 - hot news and featured stories
 - macro events

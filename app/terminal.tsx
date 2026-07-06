@@ -22,9 +22,9 @@ type DecisionLogEntry = { id: string; time: string; symbol: string; side: 'BUY'|
 type DraftSlice = { step: number; kind: 'LIMIT' | 'MARKET'; price: number | null; qty: number; notional: number };
 type ExecutionDraft = { id: string; createdAt: string; origin: 'rebalance' | 'news-bot' | 'copilot'; symbol: string; sodexSymbol: string; side: 'BUY' | 'SELL'; qty: number; notional: number; confidence: number; mode: 'LIMIT' | 'MARKET'; regime: string; rationale: string; slices: DraftSlice[]; status: 'draft' | 'queued' | 'archived' };
 type MarketDetail = { symbol: string; pair: string; price: number | null; spreadBps: number | null; orderbook: { bids: [number, number][]; asks: [number, number][] }; trades: { time: number; side: string; price: number; size: number }[]; klines: CandlePoint[] };
-type SmartMoneyPeer = { address: string; aid: number; uid: number; accountReady: boolean; openOrders: number; balances: number; trades: number; recentVolume: number; pnlTotal: number; symbols: string[]; lastTradeAt: number; exposure: { symbol: string; label: string; qty: number; avgCost: number; mark: number; realized: number; unrealized: number; net: number; trades: number; volume: number }[] };
+type SmartMoneyPeer = { address: string; aid: number; uid: number; accountReady: boolean; openOrders: number; balances: number; trades: number; recentVolume: number; pnlTotal: number; scorecard: { timing: number; sizing: number; discipline: number; hitRate: number; pnlEfficiencyBps: number }; symbols: string[]; lastTradeAt: number; exposure: { symbol: string; label: string; qty: number; avgCost: number; mark: number; realized: number; unrealized: number; net: number; trades: number; volume: number }[] };
 type SmartMoneyConsensus = { symbol: string; venueSymbol: string; traders: number; buyVolume: number; sellVolume: number; totalVolume: number; bias: 'BUY' | 'SELL' | 'MIXED' };
-type SmartMoneyData = { peers: SmartMoneyPeer[]; scorecard: { peerCount: number; avgPnl: number; avgVolume: number; bestPnl: number; topVolume: number }; consensus: SmartMoneyConsensus[]; user: null | { address: string; pnlTotal: number; recentVolume: number; pnlRank: number | null; volumeRank: number | null; pnlVsPeerAvg: number; volumeVsPeerAvg: number } };
+type SmartMoneyData = { peers: SmartMoneyPeer[]; scorecard: { peerCount: number; avgPnl: number; avgVolume: number; bestPnl: number; topVolume: number }; leaderboard: { bestTiming: SmartMoneyPeer[]; bestSizing: SmartMoneyPeer[]; bestDiscipline: SmartMoneyPeer[] }; consensus: SmartMoneyConsensus[]; user: null | { address: string; pnlTotal: number; recentVolume: number; pnlRank: number | null; volumeRank: number | null; pnlVsPeerAvg: number; volumeVsPeerAvg: number } };
 
 declare global { interface Window { ethereum?: any } }
 
@@ -36,7 +36,15 @@ const usd = (n:number|null)=> n==null||Number.isNaN(n) ? '—' : n>=1e12?`$${(n/
 const pct = (n:number)=>`${n>=0?'+':''}${n.toFixed(2)}%`;
 const short = (a:string)=>a?`${a.slice(0,6)}...${a.slice(-4)}`:'';
 const chainName = (id:string)=>({'0x1':'Ethereum','0xaa36a7':'Sepolia','0x89':'Polygon','0xa':'Optimism','0xa4b1':'Arbitrum'} as Record<string,string>)[id] || id;
-const formatDateTime = (value:number|string)=>{const n=Number(value); if(!n) return '—'; return new Date(n).toLocaleString()};
+const formatDateTime = (value:number|string)=>{
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Date.parse(value);
+    if (!Number.isNaN(parsed)) return new Date(parsed).toLocaleString();
+  }
+  const n=Number(value);
+  if(!n) return '—';
+  return new Date(n).toLocaleString();
+};
 
 function useLocal<T>(key:string, fallback:T){
   const [val,setVal] = useState<T>(fallback);
@@ -56,7 +64,8 @@ function TokenBadge({a,small}:{a:Asset;small?:boolean}){
   if(a.logo && !failed){
     return <img className={small?'assetIconImg':'coinIconImg'} src={a.logo} alt={`${a.symbol} logo`} onError={()=>setFailed(true)} />
   }
-  return <i>{a.icon}</i>;
+  const label=(a.symbol || a.icon || '?').replace(/[^A-Z0-9]/gi,'').slice(0, a.symbol.length <= 3 ? 3 : 2) || '?';
+  return <i className="tokenFallback" data-token={label}>{label}</i>;
 }
 function Coin({a}:{a:Asset}){return <span className="coin"><TokenBadge a={a}/><b>{a.symbol}<small>{a.name}</small></b></span>}
 
@@ -134,6 +143,41 @@ function formatBp(value: number) {
 function parseNum(value: any) {
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
+}
+
+function findAssetBySymbol(assets: Asset[], symbol: string) {
+  const clean = symbol.replace(/[^A-Z0-9]/gi, '').toUpperCase();
+  return assets.find((row) => {
+    const variants = [
+      row.symbol,
+      row.sodexSymbol || '',
+      row.pair.replace(/[^A-Z0-9]/gi, '')
+    ].map((value) => value.toUpperCase());
+    return variants.some((value) => value === clean || value.includes(clean) || clean.includes(value));
+  }) || null;
+}
+
+function buildDecisionCounterfactual(row: DecisionLogEntry, assets: Asset[]) {
+  const asset = findAssetBySymbol(assets, row.symbol);
+  const mark = asset?.price ?? row.price ?? 0;
+  const direction = row.side === 'SELL' ? -1 : row.side === 'BUY' ? 1 : 0;
+  const actualPnl = direction === 0 ? 0 : (mark - row.price) * row.qty * direction;
+  const skipEdge = -actualPnl;
+  const reasons = [
+    row.confidence < 66 ? `low confidence ${row.confidence}%` : '',
+    row.spreadBps !== null && row.spreadBps > 8 ? `wide spread ${formatBp(row.spreadBps)}` : '',
+    row.side === 'HOLD' ? 'hold-state signal' : '',
+    row.riskGate.some((item) => item.toLowerCase().includes('blocked')) ? 'risk gate warning' : ''
+  ].filter(Boolean);
+  const skipSuggested = reasons.length > 0 || actualPnl < 0;
+  return {
+    mark,
+    actualPnl,
+    skipEdge,
+    hypotheticalNet: skipSuggested ? 0 : actualPnl,
+    skipSuggested,
+    reasons: reasons.length ? reasons : ['no active skip flag']
+  };
 }
 
 function deriveSpread(asset: Asset, confidence: number) {
@@ -1383,7 +1427,7 @@ function NewsFeedPanel() {
   );
 }
 
-function DecisionLogPage() {
+function DecisionLogPage({ assets }: { assets: Asset[] }) {
   const [rows, setRows] = useLocal<DecisionLogEntry[]>('sodex.decision.log', []);
   return (
     <div className="single">
@@ -1403,8 +1447,9 @@ function DecisionLogPage() {
         </div>
       </section>
       <section className="storyList">
-        {rows.length ? rows.map((row) => (
-          <article className="storyCard" key={row.id}>
+        {rows.length ? rows.map((row) => {
+          const counterfactual = buildDecisionCounterfactual(row, assets);
+          return <article className="storyCard" key={row.id}>
             <div className="storyMeta">
               <span>{row.mode}</span>
               <em>{formatDateTime(row.time)}</em>
@@ -1415,9 +1460,15 @@ function DecisionLogPage() {
             <p>News: {row.newsTitle || 'No news snapshot'} {row.newsLink ? <a href={row.newsLink} target="_blank" rel="noreferrer" className="miniBtn" style={{marginLeft:'8px'}}>Open source</a> : null}</p>
             <p>Macro: {row.macroDate || '—'} {row.macroEvents?.length ? `· ${row.macroEvents.join(' · ')}` : ''}</p>
             <p>Risk gate: {row.riskGate.join(' | ')}</p>
+            <div className="decisionCounter">
+              <div><small>Current mark</small><b>{usd(counterfactual.mark)}</b></div>
+              <div><small>Trade PnL now</small><b className={counterfactual.actualPnl>=0?'green':'red'}>{counterfactual.actualPnl>=0?'+':''}{usd(counterfactual.actualPnl)}</b></div>
+              <div><small>If skipped</small><b className={counterfactual.skipEdge>=0?'green':'red'}>{counterfactual.skipEdge>=0?'+':''}{usd(counterfactual.skipEdge)}</b></div>
+            </div>
+            <p>Skip overlay: {counterfactual.skipSuggested ? 'yes' : 'no'} · {counterfactual.reasons.join(' · ')}</p>
             <small>{row.outcome}</small>
-          </article>
-        )) : <section className="panel" style={{ padding: '18px' }}><div className="panelTitle"><b>No decisions yet</b><a>Run bot scan or submit a live order</a></div><p style={{color:'#aebacc'}}>This page will fill as soon as the bot scans, signal routes, or live order attempts create provenance rows.</p></section>}
+          </article>;
+        }) : <section className="panel" style={{ padding: '18px' }}><div className="panelTitle"><b>No decisions yet</b><a>Run bot scan or submit a live order</a></div><p style={{color:'#aebacc'}}>This page will fill as soon as the bot scans, signal routes, or live order attempts create provenance rows.</p></section>}
       </section>
     </div>
   );
@@ -1541,10 +1592,22 @@ type HeatmapSizeMode = 'volume' | 'marketCap' | 'confidence';
 type HeatmapColorMode = '24h' | '7d';
 type HeatmapRect<T> = { item: T; x: number; y: number; width: number; height: number; weight: number };
 
-function heatmapGroupOf(asset: Asset) {
-  if (asset.symbol === 'SOSO') return 'ValueChain';
+type HeatmapGroup = 'All' | 'Majors' | 'Layer 1' | 'Layer 2' | 'DeFi' | 'Infrastructure' | 'Meme' | 'AI / Data' | 'RWA' | 'SoSoValue Indices' | 'ValueChain' | 'Stable / Cash' | 'SoDEX Spot' | 'Venue Universe';
+
+function heatmapGroupOf(asset: Asset): Exclude<HeatmapGroup, 'All'> {
+  if (asset.symbol === 'SOSO' || asset.category === 'ValueChain Asset') return 'ValueChain';
   if (asset.category.includes('SSI')) return 'SoSoValue Indices';
-  return 'Core Markets';
+  if (asset.category.includes('Major')) return 'Majors';
+  if (asset.category.includes('Layer 1')) return 'Layer 1';
+  if (asset.category.includes('Layer 2')) return 'Layer 2';
+  if (asset.category.includes('DeFi')) return 'DeFi';
+  if (asset.category.includes('Infrastructure')) return 'Infrastructure';
+  if (asset.category.includes('Meme')) return 'Meme';
+  if (asset.category.includes('AI')) return 'AI / Data';
+  if (asset.category.includes('RWA')) return 'RWA';
+  if (asset.category.includes('Stable')) return 'Stable / Cash';
+  if (asset.category.includes('SoDEX Spot')) return 'SoDEX Spot';
+  return 'Venue Universe';
 }
 
 function heatmapSizeLabel(mode: HeatmapSizeMode) {
@@ -1830,6 +1893,31 @@ function PortfolioLivePage(props:any) {
                   <p>Buy volume {usd(row.buyVolume)} · Sell volume {usd(row.sellVolume)} · Total {usd(row.totalVolume)}</p>
                 </article>
               )) : <article className="storyCard"><b>No smart money cohort loaded</b><p>Save at least one peer wallet to turn on Smart Money Watch.</p></article>}
+            </div>
+          </section>
+          <section className="panel" style={{ padding: '16px' }}>
+            <div className="panelTitle">
+              <b>Mini Leaderboard</b>
+              <a>Timing · sizing · discipline</a>
+            </div>
+            <div className="storyList">
+              {smartMoney?.leaderboard?.bestTiming?.length ? <>
+                <article className="storyCard">
+                  <div className="storyMeta"><span>Best timing</span><em>{short(smartMoney.leaderboard.bestTiming[0].address)}</em></div>
+                  <b>{smartMoney.leaderboard.bestTiming[0].scorecard.timing}/100 timing score</b>
+                  <p>Hit rate {smartMoney.leaderboard.bestTiming[0].scorecard.hitRate}% · PnL efficiency {smartMoney.leaderboard.bestTiming[0].scorecard.pnlEfficiencyBps} bps.</p>
+                </article>
+                <article className="storyCard">
+                  <div className="storyMeta"><span>Best sizing</span><em>{short(smartMoney.leaderboard.bestSizing[0].address)}</em></div>
+                  <b>{smartMoney.leaderboard.bestSizing[0].scorecard.sizing}/100 sizing score</b>
+                  <p>Volume {usd(smartMoney.leaderboard.bestSizing[0].recentVolume)} · PnL {usd(smartMoney.leaderboard.bestSizing[0].pnlTotal)}.</p>
+                </article>
+                <article className="storyCard">
+                  <div className="storyMeta"><span>Best discipline</span><em>{short(smartMoney.leaderboard.bestDiscipline[0].address)}</em></div>
+                  <b>{smartMoney.leaderboard.bestDiscipline[0].scorecard.discipline}/100 discipline score</b>
+                  <p>{smartMoney.leaderboard.bestDiscipline[0].accountReady ? 'Active SoDEX account' : 'No active account'} · {smartMoney.leaderboard.bestDiscipline[0].trades} tracked trades.</p>
+                </article>
+              </> : <article className="storyCard"><b>No leaderboard yet</b><p>Add peer wallets with real SoDEX trade history to unlock timing, sizing, and discipline rankings.</p></article>}
             </div>
           </section>
           <section className="panel" style={{ padding: '16px' }}>
@@ -2197,33 +2285,38 @@ function Screener({assets,onPick}:any){const [min,setMin]=useState(0); const [on
 function Heatmap({assets,onPick,openMenu}:any){
   const [sizeMode,setSizeMode]=useState<HeatmapSizeMode>('volume');
   const [colorMode,setColorMode]=useState<HeatmapColorMode>('24h');
-  const [groupFilter,setGroupFilter]=useState<'All'|'Core Markets'|'SoSoValue Indices'|'ValueChain'>('All');
+  const [groupFilter,setGroupFilter]=useState<HeatmapGroup>('All');
+  const [search,setSearch]=useState('');
   const [detailCache,setDetailCache]=useState<Record<string, MarketDetail | null>>({});
   const [hovered,setHovered]=useState<{ symbol: string; x: number; y: number } | null>(null);
+  const visibleAssets = useMemo(() => (assets as Asset[])
+    .filter((asset) => groupFilter === 'All' || heatmapGroupOf(asset) === groupFilter)
+    .filter((asset) => !search || `${asset.symbol} ${asset.name} ${asset.category}`.toLowerCase().includes(search.toLowerCase()))
+    .sort((a, b) => heatmapWeight(b, sizeMode) - heatmapWeight(a, sizeMode))
+    .slice(0, 180), [assets, groupFilter, search, sizeMode]);
   const groups = useMemo(() => {
     const bucket = new Map<string, Asset[]>();
-    for (const asset of assets as Asset[]) {
+    for (const asset of visibleAssets) {
       const key = heatmapGroupOf(asset);
-      if (groupFilter !== 'All' && key !== groupFilter) continue;
       bucket.set(key, [...(bucket.get(key) || []), asset]);
     }
-    return ['Core Markets', 'SoSoValue Indices', 'ValueChain']
+    return ['Majors', 'Layer 1', 'Layer 2', 'DeFi', 'Infrastructure', 'AI / Data', 'RWA', 'Meme', 'SoSoValue Indices', 'ValueChain', 'Stable / Cash', 'SoDEX Spot', 'Venue Universe']
       .filter((key) => bucket.has(key))
       .map((key) => {
         const rows = bucket.get(key) || [];
         const totalWeight = rows.reduce((sum, asset) => sum + heatmapWeight(asset, sizeMode), 0);
         return { key, rows, totalWeight };
       });
-  }, [assets, groupFilter, sizeMode]);
+  }, [visibleAssets, sizeMode]);
   const sectorRects = useMemo(() => {
     return buildTreemapRects(groups.map((group) => ({ item: group, weight: Math.max(group.totalWeight, 1) })));
   }, [groups]);
   const leader = useMemo(() => {
-    return (assets as Asset[]).slice().sort((a, b) => heatmapWeight(b, sizeMode) - heatmapWeight(a, sizeMode))[0] || null;
-  }, [assets, sizeMode]);
-  const winner = useMemo(() => (assets as Asset[]).slice().sort((a, b) => b.change24h - a.change24h)[0] || null, [assets]);
-  const laggard = useMemo(() => (assets as Asset[]).slice().sort((a, b) => a.change24h - b.change24h)[0] || null, [assets]);
-  const executionCandidate = useMemo(() => (assets as Asset[]).slice().sort((a, b) => scoreBotCandidate(b, 'Trend') - scoreBotCandidate(a, 'Trend'))[0] || null, [assets]);
+    return visibleAssets[0] || null;
+  }, [visibleAssets]);
+  const winner = useMemo(() => visibleAssets.slice().sort((a, b) => b.change24h - a.change24h)[0] || null, [visibleAssets]);
+  const laggard = useMemo(() => visibleAssets.slice().sort((a, b) => a.change24h - b.change24h)[0] || null, [visibleAssets]);
+  const executionCandidate = useMemo(() => visibleAssets.slice().sort((a, b) => scoreBotCandidate(b, 'Trend') - scoreBotCandidate(a, 'Trend'))[0] || null, [visibleAssets]);
   useEffect(() => {
     if (!hovered?.symbol || detailCache[hovered.symbol] !== undefined) return;
     let live = true;
@@ -2233,7 +2326,7 @@ function Heatmap({assets,onPick,openMenu}:any){
       .catch(() => { if (live) setDetailCache((prev) => ({ ...prev, [hovered.symbol]: null })); });
     return () => { live = false; };
   }, [hovered?.symbol, detailCache]);
-  const hoveredAsset = hovered ? (assets as Asset[]).find((asset) => asset.symbol === hovered.symbol) || null : null;
+  const hoveredAsset = hovered ? (visibleAssets as Asset[]).find((asset) => asset.symbol === hovered.symbol) || null : null;
   const hoveredDetail = hovered?.symbol ? detailCache[hovered.symbol] : null;
   const hoveredDepthUsd = hoveredDetail ? hoveredDetail.orderbook.bids.slice(0, 4).reduce((sum, [price, size]) => sum + price * size, 0) + hoveredDetail.orderbook.asks.slice(0, 4).reduce((sum, [price, size]) => sum + price * size, 0) : null;
   const viewportWidth = typeof window === 'undefined' ? 1440 : window.innerWidth;
@@ -2243,6 +2336,10 @@ function Heatmap({assets,onPick,openMenu}:any){
       <div className="panelTitle">
         <b>Market Heatmap</b>
         <a>Full-screen treemap size = {heatmapSizeLabel(sizeMode)}, color = {colorMode === '24h' ? '24H move' : '7D move'}</a>
+      </div>
+      <div className="toolBar" style={{ paddingLeft: 0, paddingRight: 0 }}>
+        <input value={search} onChange={(e)=>setSearch(e.target.value)} placeholder="Search token, sector, theme" />
+        <span className="miniBtn">{visibleAssets.length} tokens on screen</span>
       </div>
       <div className="heatmapToolbar">
         <div className="heatmapToggle">
@@ -2258,7 +2355,7 @@ function Heatmap({assets,onPick,openMenu}:any){
         </div>
         <div className="heatmapToggle">
           <span>Group</span>
-          {(['All','Core Markets','SoSoValue Indices','ValueChain'] as const).map((label)=><button key={label} className={groupFilter===label?'on':''} onClick={()=>setGroupFilter(label)}>{label}</button>)}
+          {(['All','Majors','Layer 1','Layer 2','DeFi','Infrastructure','AI / Data','RWA','Meme','SoSoValue Indices','ValueChain'] as const).map((label)=><button key={label} className={groupFilter===label?'on':''} onClick={()=>setGroupFilter(label)}>{label}</button>)}
         </div>
       </div>
       <div className="heatmapLegend">
@@ -2278,13 +2375,13 @@ function Heatmap({assets,onPick,openMenu}:any){
         </article>
         <article>
           <small>Most positive</small>
-          <b>{assets.slice().sort((a:Asset,b:Asset)=>heatmapChange(b,colorMode)-heatmapChange(a,colorMode))[0]?.symbol || '—'}</b>
-          <span className="green">{assets[0] ? pct(heatmapChange(assets.slice().sort((a:Asset,b:Asset)=>heatmapChange(b,colorMode)-heatmapChange(a,colorMode))[0], colorMode)) : '—'}</span>
+          <b>{winner?.symbol || '—'}</b>
+          <span className="green">{winner ? pct(heatmapChange(winner, colorMode)) : '—'}</span>
         </article>
         <article>
           <small>Most negative</small>
-          <b>{assets.slice().sort((a:Asset,b:Asset)=>heatmapChange(a,colorMode)-heatmapChange(b,colorMode))[0]?.symbol || '—'}</b>
-          <span className="red">{assets[0] ? pct(heatmapChange(assets.slice().sort((a:Asset,b:Asset)=>heatmapChange(a,colorMode)-heatmapChange(b,colorMode))[0], colorMode)) : '—'}</span>
+          <b>{laggard?.symbol || '—'}</b>
+          <span className="red">{laggard ? pct(heatmapChange(laggard, colorMode)) : '—'}</span>
         </article>
       </div>
       <div className="heatmapStage">
@@ -2410,6 +2507,6 @@ export default function Terminal({initialMenu='Launch'}:{initialMenu?:string}){
     return () => window.removeEventListener('popstate', syncRoute);
   }, [assets]);
   const main=active||assets[0]; const marketCap=assets.reduce((s,a)=>s+(a.marketCap||0),0), volume=assets.reduce((s,a)=>s+(a.volume24h||0),0); const props={assets,main,onPick:setActive,wallet,watchlist,toggleWatch,positions,setPositions,addTrade,overview,decisionLog,setDecisionLog,drafts,setDrafts};
-  const page = activeMenu==='Launch'?<LaunchPanel {...props}/>:activeMenu==='Judges'?<JudgesPanel {...props}/>:activeMenu==='Execution'?<ExecutionDesk {...props}/>:activeMenu==='Operator Lab'?<OperatorLabPage {...props}/>:activeMenu==='Decision Log'?<DecisionLogPage />:activeMenu==='Markets'?<Markets {...props}/>:activeMenu==='Watchlist'?<Watchlist {...props}/>:activeMenu==='Alpha Signals'?<AlphaSignals {...props}/>:activeMenu==='Screener'?<Screener {...props}/>:activeMenu==='Heatmap'?<Heatmap {...props} openMenu={openMenu}/>:activeMenu==='Portfolio'?<PortfolioPage {...props}/>:activeMenu==='Portfolio Live'?<PortfolioLivePage {...props}/>:activeMenu==='Paper Trading'?<PaperTrading {...props}/>:activeMenu==='Alerts'?<NewsExecutionBotPage {...props}/>:activeMenu==='Diag'?<DiagPanel {...props}/>:activeMenu==='AI Research'?<ResearchPanel {...props}/>:activeMenu==='News & Insights'?<NewsFeedPanel />:activeMenu==='SoSoValue Indexes'?<IndexRebalanceExecutor {...props}/>:main?<LaunchPanel {...props}/>:null;
+  const page = activeMenu==='Launch'?<LaunchPanel {...props}/>:activeMenu==='Judges'?<JudgesPanel {...props}/>:activeMenu==='Execution'?<ExecutionDesk {...props}/>:activeMenu==='Operator Lab'?<OperatorLabPage {...props}/>:activeMenu==='Decision Log'?<DecisionLogPage assets={assets} />:activeMenu==='Markets'?<Markets {...props}/>:activeMenu==='Watchlist'?<Watchlist {...props}/>:activeMenu==='Alpha Signals'?<AlphaSignals {...props}/>:activeMenu==='Screener'?<Screener {...props}/>:activeMenu==='Heatmap'?<Heatmap {...props} openMenu={openMenu}/>:activeMenu==='Portfolio'?<PortfolioPage {...props}/>:activeMenu==='Portfolio Live'?<PortfolioLivePage {...props}/>:activeMenu==='Paper Trading'?<PaperTrading {...props}/>:activeMenu==='Alerts'?<NewsExecutionBotPage {...props}/>:activeMenu==='Diag'?<DiagPanel {...props}/>:activeMenu==='AI Research'?<ResearchPanel {...props}/>:activeMenu==='News & Insights'?<NewsFeedPanel />:activeMenu==='SoSoValue Indexes'?<IndexRebalanceExecutor {...props}/>:main?<LaunchPanel {...props}/>:null;
   return <main className="app"><aside className="sidebar"><div className="logo brandLogo"><img src="/sodex-logo.jpg" alt="SoDEX logo"/><p><b>SoDEX</b><span>ALPHA TERMINAL</span></p></div><nav>{nav.map((n,i)=><a key={n} href={pathOf(n)} onClick={(e)=>{e.preventDefault(); openMenu(n)}} className={activeMenu===n?'active':''}><span>{navIcons[i]}</span>{n}{n==='Alpha Signals'&&<em>LIVE</em>}</a>)}</nav><div className="community"><small>OFFICIAL & COMMUNITY</small>{official.map(([l,h])=><a key={l} href={h} target="_blank" rel="noreferrer">{l}<span>↗</span></a>)}</div></aside><section className="desk"><header className="playerBar compactBar"><div className="theme launchTheme"><div className="disc">◎</div><p><b>SoSoValue Launch Rail</b><span>Research, execution, diagnostics in one desk</span></p></div><div className="actions"><button className="bell" onClick={loadMarket}>{loading?'↻':'⟳'}</button>{wallet?<button onClick={disconnect} className="wallet">{short(wallet.address)} · Disconnect</button>:<button onClick={connect} className="wallet">Connect Wallet</button>}<button className="sun">✦</button></div></header>{walletError&&<div className="walletError">{walletError}</div>}<div className="ticker">{assets.map(a=><button key={a.symbol} onClick={()=>setActive(a)}><b>{a.symbol}</b><span>{usd(a.price)}</span><em className={a.change24h>=0?'green':'red'}>{pct(a.change24h)}</em></button>)}<button><span>Market Cap</span><b>{usd(overview?.totalMarketCap ?? marketCap)}</b><em>{overview?.leaders?.[0] || 'live'}</em></button><button><span>24H Vol</span><b>{usd(overview?.totalVolume24h ?? volume)}</b><em>{overview?.breadthPct ? `${Math.round(overview.breadthPct)}% green` : 'live'}</em></button><button><span>BTC.D</span><b>{overview?.btcDominance ? `${overview.btcDominance.toFixed(2)}%` : '—'}</b><em>{overview?.leaders?.slice(0,2).join(' · ') || 'SoSoValue'}</em></button></div>{page}</section></main>
 }

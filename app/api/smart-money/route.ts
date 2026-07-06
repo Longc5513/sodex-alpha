@@ -12,6 +12,14 @@ type AssetLite = {
   price: number | null;
 };
 
+type PeerScorecard = {
+  timing: number;
+  sizing: number;
+  discipline: number;
+  hitRate: number;
+  pnlEfficiencyBps: number;
+};
+
 function parseNum(value: any) {
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
@@ -84,6 +92,29 @@ function summarizePeer(address: string, live: Awaited<ReturnType<typeof getPortf
   const recentTrades = Array.isArray(live.trades) ? live.trades : [];
   const symbols = Array.from(new Set(recentTrades.map((row: any) => String(row.symbol || row.s || '').trim()).filter(Boolean)));
   const lastTradeAt = recentTrades.reduce((latest: number, row: any) => Math.max(latest, Number(row.time || row.T || 0) || 0), 0);
+  const scoredTrades = recentTrades
+    .map((row: any) => {
+      const symbol = String(row.symbol || row.s || row.name || '').trim();
+      const asset = assetForSymbol(symbol, assets);
+      const price = parseNum(row.price || row.p) || 0;
+      const quantity = parseNum(row.quantity || row.q || row.size) || 0;
+      const sideRaw = String(row.side || row.S || '').toUpperCase();
+      const side = sideRaw.includes('SELL') || sideRaw === '2' ? -1 : 1;
+      const mark = asset?.price || price;
+      const notional = price * quantity;
+      const edgePct = price > 0 ? ((mark - price) / price) * side : 0;
+      return { symbol, notional, edgePct };
+    })
+    .filter((row) => row.notional > 0);
+  const positiveEdges = scoredTrades.filter((row) => row.edgePct > 0).length;
+  const hitRate = scoredTrades.length ? positiveEdges / scoredTrades.length : 0;
+  const pnlEfficiencyBps = recentVolume > 0 ? (pnlTotal / recentVolume) * 10000 : 0;
+  const largestExposure = pnlRows.reduce((max, row) => Math.max(max, Math.abs(row.net), Math.abs(row.qty * (row.mark || row.avgCost || 0))), 0);
+  const concentrationPenalty = recentVolume > 0 ? Math.min(24, (largestExposure / recentVolume) * 120) : 0;
+  const churnPenalty = scoredTrades.length ? Math.min(16, Math.max(0, scoredTrades.length - Math.max(3, symbols.length * 2)) * 1.6) : 0;
+  const timing = Math.max(0, Math.min(100, 46 + hitRate * 40 + Math.max(-18, Math.min(22, pnlEfficiencyBps * 1.8))));
+  const sizing = Math.max(0, Math.min(100, 48 + Math.max(-14, Math.min(24, pnlEfficiencyBps * 2.2)) - concentrationPenalty + Math.min(12, symbols.length * 2.4)));
+  const discipline = Math.max(0, Math.min(100, 44 + (live.accountReady ? 10 : 0) + hitRate * 24 - churnPenalty - concentrationPenalty / 2));
   return {
     address,
     aid: live.state.aid,
@@ -94,6 +125,13 @@ function summarizePeer(address: string, live: Awaited<ReturnType<typeof getPortf
     trades: recentTrades.length,
     recentVolume,
     pnlTotal,
+    scorecard: {
+      timing: Number(timing.toFixed(1)),
+      sizing: Number(sizing.toFixed(1)),
+      discipline: Number(discipline.toFixed(1)),
+      hitRate: Number((hitRate * 100).toFixed(1)),
+      pnlEfficiencyBps: Number(pnlEfficiencyBps.toFixed(2))
+    } satisfies PeerScorecard,
     symbols: symbols.slice(0, 5),
     lastTradeAt,
     exposure: pnlRows
@@ -139,6 +177,9 @@ export async function GET(request: NextRequest) {
     const rows = peerLives.map(({ address, live }) => summarizePeer(address, live, assets));
     const sortedByPnl = rows.slice().sort((a, b) => b.pnlTotal - a.pnlTotal);
     const sortedByVolume = rows.slice().sort((a, b) => b.recentVolume - a.recentVolume);
+    const sortedByTiming = rows.slice().sort((a, b) => b.scorecard.timing - a.scorecard.timing);
+    const sortedBySizing = rows.slice().sort((a, b) => b.scorecard.sizing - a.scorecard.sizing);
+    const sortedByDiscipline = rows.slice().sort((a, b) => b.scorecard.discipline - a.scorecard.discipline);
 
     const consensus = new Map<string, { buyVolume: number; sellVolume: number; traders: number }>();
     for (const { live } of peerLives) {
@@ -213,6 +254,11 @@ export async function GET(request: NextRequest) {
           avgVolume: rows.reduce((sum, row) => sum + row.recentVolume, 0) / Math.max(rows.length, 1),
           bestPnl: sortedByPnl[0]?.pnlTotal || 0,
           topVolume: sortedByVolume[0]?.recentVolume || 0
+        },
+        leaderboard: {
+          bestTiming: sortedByTiming.slice(0, 5),
+          bestSizing: sortedBySizing.slice(0, 5),
+          bestDiscipline: sortedByDiscipline.slice(0, 5)
         },
         consensus: consensusRows,
         user

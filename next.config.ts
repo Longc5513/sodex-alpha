@@ -1,5 +1,5 @@
 const nextConfig = {
-  eslint: { ignoreDuringBuilds: true },
-  typescript: { ignoreBuildErrors: true }
+  typescript: { ignoreBuildErrors: true },
+  turbopack: { root: process.cwd() }
 };
 export default nextConfig;

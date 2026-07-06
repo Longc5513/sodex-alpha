@@ -67,6 +67,34 @@ const INDEXES = [
   { symbol: 'USSI', name: 'USSI Treasury Index', pair: 'USSI / USDC', sodex: 'vUSSI_vUSDC', sosoIndex: 'ssiRWA', category: 'SSI Index', icon: 'U', logo: '/tokens/ussi.svg' }
 ] as const;
 
+const KNOWN_UNIVERSE_META: Record<string, { name: string; category: string; logo?: string; icon: string }> = {
+  BTC: { name: 'Bitcoin', category: 'Majors', logo: '/tokens/btc.svg', icon: '₿' },
+  ETH: { name: 'Ethereum', category: 'Majors', logo: '/tokens/eth.svg', icon: '◆' },
+  SOSO: { name: 'SoSoValue', category: 'ValueChain Asset', logo: '/tokens/soso.svg', icon: 'S' },
+  SOL: { name: 'Solana', category: 'Layer 1', logo: '/tokens/sol.svg', icon: '◎' },
+  LINK: { name: 'Chainlink', category: 'Infrastructure', logo: '/tokens/link.svg', icon: '⬡' },
+  XRP: { name: 'XRP', category: 'Payments', icon: 'X' },
+  ADA: { name: 'Cardano', category: 'Layer 1', icon: 'A' },
+  DOGE: { name: 'Dogecoin', category: 'Meme', icon: 'D' },
+  AVAX: { name: 'Avalanche', category: 'Layer 1', icon: 'A' },
+  SUI: { name: 'Sui', category: 'Layer 1', icon: 'S' },
+  UNI: { name: 'Uniswap', category: 'DeFi', icon: 'U' },
+  AAVE: { name: 'Aave', category: 'DeFi', icon: 'A' },
+  PENDLE: { name: 'Pendle', category: 'DeFi', icon: 'P' },
+  ONDO: { name: 'Ondo', category: 'RWA', icon: 'O' },
+  ENA: { name: 'Ethena', category: 'RWA', icon: 'E' },
+  HYPE: { name: 'Hyperliquid', category: 'Perps / Trading', icon: 'H' },
+  WIF: { name: 'dogwifhat', category: 'Meme', icon: 'W' },
+  PEPE: { name: 'Pepe', category: 'Meme', icon: 'P' },
+  BONK: { name: 'Bonk', category: 'Meme', icon: 'B' },
+  NEAR: { name: 'NEAR', category: 'Layer 1', icon: 'N' },
+  TAO: { name: 'Bittensor', category: 'AI / Data', icon: 'T' },
+  FET: { name: 'Fetch.ai', category: 'AI / Data', icon: 'F' },
+  RNDR: { name: 'Render', category: 'AI / Data', icon: 'R' },
+  ARB: { name: 'Arbitrum', category: 'Layer 2', icon: 'A' },
+  OP: { name: 'Optimism', category: 'Layer 2', icon: 'O' }
+};
+
 type AnyRecord = Record<string, any>;
 
 function asNumber(value: any): number | null {
@@ -112,6 +140,91 @@ async function fetchJson(url: string) {
 
 function normalizeSymbol(value: string) {
   return value.replace(/[^A-Z0-9]/gi, '').toUpperCase();
+}
+
+function toTitle(value: string) {
+  return value
+    .toLowerCase()
+    .split(/[^a-z0-9]+/i)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function cleanVenueToken(token: string) {
+  if (/^v[A-Z0-9]/.test(token)) return token.slice(1);
+  return token;
+}
+
+function inferMarketIdentity(row: AnyRecord) {
+  const rawPair = pickString(row, ['symbol', 's', 'symbolName', 'market', 'name', 'pair']);
+  const directBase = pickString(row, ['baseAsset', 'baseCoin', 'base', 'coin']);
+  const directQuote = pickString(row, ['quoteAsset', 'quoteCoin', 'quote']);
+  let base = directBase;
+  let quote = directQuote;
+
+  if ((!base || !quote) && rawPair.includes('_')) {
+    const [left, right] = rawPair.split('_');
+    base = base || left;
+    quote = quote || right;
+  }
+
+  if ((!base || !quote) && rawPair.includes('/')) {
+    const [left, right] = rawPair.split('/');
+    base = base || left;
+    quote = quote || right;
+  }
+
+  const venueBase = cleanVenueToken((base || '').trim());
+  const venueQuote = cleanVenueToken((quote || '').trim());
+  const displaySymbol = normalizeSymbol(venueBase);
+  const displayQuote = normalizeSymbol(venueQuote || 'USDC');
+
+  return {
+    rawPair,
+    sodexSymbol: rawPair || `${base}_${quote}`,
+    base: venueBase,
+    quote: venueQuote,
+    symbol: displaySymbol,
+    quoteSymbol: displayQuote
+  };
+}
+
+function inferDynamicCategory(symbol: string, rawPair: string) {
+  const upperPair = rawPair.toUpperCase();
+  if (symbol.includes('SSI') || symbol.includes('MAG7') || symbol.includes('USSI')) return 'SSI Index';
+  if (symbol === 'SOSO') return 'ValueChain Asset';
+  if (KNOWN_UNIVERSE_META[symbol]?.category) return KNOWN_UNIVERSE_META[symbol].category;
+  if (/(USDC|USDT|USDE|DAI|FDUSD|USD0|USD)/.test(symbol)) return 'Stable / Cash';
+  if (/(AI|TAO|FET|RENDER|RNDR|ARKM)/.test(symbol)) return 'AI / Data';
+  if (/(LINK|BAND|PYTH|API3)/.test(symbol)) return 'Infrastructure';
+  if (/(AAVE|UNI|MKR|COMP|CRV|PENDLE|SUSHI|JUP)/.test(symbol)) return 'DeFi';
+  if (/(DOGE|SHIB|PEPE|WIF|BONK|FLOKI|BRETT)/.test(symbol)) return 'Meme';
+  if (/(ARB|OP|MNT|STRK|ZK)/.test(symbol)) return 'Layer 2';
+  if (/(ONDO|USSI|RWA|ENA)/.test(symbol)) return 'RWA';
+  if (/(SOL|SUI|AVAX|SEI|APT|ATOM|ADA|NEAR|XRP|ETH|BTC)/.test(symbol)) return 'Layer 1';
+  if (upperPair.includes('USDC') || upperPair.includes('USDT')) return 'SoDEX Spot';
+  return 'Venue Universe';
+}
+
+function inferDynamicMeta(symbol: string, rawPair: string) {
+  const known = KNOWN_UNIVERSE_META[symbol];
+  if (known) return known;
+  const icon = symbol.slice(0, 2) || '?';
+  return {
+    name: toTitle(symbol),
+    category: inferDynamicCategory(symbol, rawPair),
+    icon
+  };
+}
+
+function buildSyntheticSpark(price: number | null, change24h: number) {
+  if (price === null || !Number.isFinite(price) || price <= 0) return [];
+  const start = price / (1 + change24h / 100 || 1);
+  return Array.from({ length: 12 }, (_, index) => {
+    const ratio = index / 11;
+    return Number((start + (price - start) * ratio).toFixed(6));
+  });
 }
 
 function matchesSymbol(row: AnyRecord, sodexSymbol: string, symbol: string) {
@@ -304,6 +417,40 @@ function indexFromVenue(item: (typeof INDEXES)[number], tickerRow: AnyRecord | u
   });
 }
 
+function dynamicAssetFromTicker(row: AnyRecord): Asset | null {
+  const identity = inferMarketIdentity(row);
+  if (!identity.symbol || !identity.quoteSymbol) return null;
+  if (!/(USDC|USDT|USDE|USD|USD0|DAI|FDUSD)/.test(identity.quoteSymbol)) return null;
+  if (/(BULL|BEAR|UP|DOWN|3L|3S|5L|5S)/.test(identity.symbol)) return null;
+  if (/^\d{3,}/.test(identity.symbol)) return null;
+  if (identity.symbol.length > 14) return null;
+
+  const price = pickNumber(row, ['lastPx', 'lastPrice', 'last', 'price', 'close', 'c', 'markPrice', 'indexPrice', 'weightedAvgPrice']);
+  const volume24h = pickNumber(row, ['quoteVolume', 'volumeUsd', 'volumeUSDC', 'volume24h', 'quoteVolume24h', 'q']);
+  if (price === null || price <= 0 || volume24h === null || volume24h <= 0) return null;
+
+  const change24h = deriveVenueChangePercent(row, null);
+  const change7d = 0;
+  const meta = inferDynamicMeta(identity.symbol, identity.rawPair);
+
+  return finishAsset({
+    symbol: identity.symbol,
+    name: meta.name,
+    pair: `${identity.base} / ${identity.quote}`,
+    sodexSymbol: identity.sodexSymbol,
+    logo: meta.logo,
+    price,
+    change24h,
+    change7d,
+    volume24h,
+    marketCap: null,
+    category: meta.category,
+    icon: meta.icon,
+    spark: buildSyntheticSpark(price, change24h),
+    chart: []
+  });
+}
+
 export async function getMarket(): Promise<{ assets: Asset[]; overview: MarketOverview }> {
   const [tickers, currencyMap] = await Promise.all([getSodexTickers(), getSosoCurrencyDirectory()]);
   const assetPackets = await Promise.all(WATCHLIST.map(async (item) => {
@@ -325,23 +472,40 @@ export async function getMarket(): Promise<{ assets: Asset[]; overview: MarketOv
     return indexFromVenue(item, tickerRow, chart, snapshot);
   }));
 
-  const assets = [...assetPackets, ...indexPackets];
+  const curatedSymbols = new Set<string>([...WATCHLIST.map((row) => row.symbol), ...INDEXES.map((row) => row.symbol)]);
+  const dynamicUniverse = tickers
+    .map((row) => dynamicAssetFromTicker(row))
+    .filter((row): row is Asset => Boolean(row))
+    .filter((row) => !curatedSymbols.has(row.symbol))
+    .sort((a, b) => (b.volume24h || 0) - (a.volume24h || 0))
+    .slice(0, 180);
+
+  const assets = [...assetPackets, ...indexPackets, ...dynamicUniverse];
   const assetOnly = assetPackets.filter((asset) => asset.marketCap !== null);
   const totalMarketCap = assetOnly.reduce((sum, asset) => sum + (asset.marketCap || 0), 0) || null;
-  const totalVolume24h = assetPackets.reduce((sum, asset) => sum + (asset.volume24h || 0), 0) || null;
+  const totalVolume24h = assets.reduce((sum, asset) => sum + (asset.volume24h || 0), 0) || null;
   const btc = assetPackets.find((asset) => asset.symbol === 'BTC');
-  const positiveCount = assetPackets.filter((asset) => asset.change24h > 0).length;
+  const positiveCount = assets.filter((asset) => asset.change24h > 0).length;
   const overview: MarketOverview = {
     totalMarketCap,
     totalVolume24h,
     btcDominance: totalMarketCap && btc?.marketCap ? (btc.marketCap / totalMarketCap) * 100 : null,
-    breadthPct: assetPackets.length ? (positiveCount / assetPackets.length) * 100 : null,
-    leaders: assetPackets.slice().sort((a, b) => b.change24h - a.change24h).slice(0, 3).map((asset) => asset.symbol)
+    breadthPct: assets.length ? (positiveCount / assets.length) * 100 : null,
+    leaders: assets.slice().sort((a, b) => b.change24h - a.change24h).slice(0, 3).map((asset) => asset.symbol)
   };
 
-  const ordered = ['BTC', 'ETH', 'SOSO', 'MAGI7', 'SOL', 'USSI', 'LINK'];
+  const ordered: string[] = ['BTC', 'ETH', 'SOSO', 'MAGI7', 'SOL', 'USSI', 'LINK'];
   return {
-    assets: assets.sort((a, b) => ordered.indexOf(a.symbol) - ordered.indexOf(b.symbol)),
+    assets: assets.sort((a, b) => {
+      const aIndex = ordered.indexOf(a.symbol);
+      const bIndex = ordered.indexOf(b.symbol);
+      if (aIndex >= 0 || bIndex >= 0) {
+        if (aIndex < 0) return 1;
+        if (bIndex < 0) return -1;
+        return aIndex - bIndex;
+      }
+      return (b.volume24h || 0) - (a.volume24h || 0);
+    }),
     overview
   };
 }
@@ -353,8 +517,26 @@ function parseDepthRows(rows: any[]) {
 }
 
 export async function getMarketDetail(symbol: string): Promise<MarketDetail | null> {
-  const item = WATCHLIST.find((row) => row.symbol === symbol) || WATCHLIST.find((row) => row.sodex === symbol) || INDEXES.find((row) => row.symbol === symbol) || INDEXES.find((row) => row.sodex === symbol);
-  if (!item) return null;
+  const knownItem = WATCHLIST.find((row) => row.symbol === symbol) || WATCHLIST.find((row) => row.sodex === symbol) || INDEXES.find((row) => row.symbol === symbol) || INDEXES.find((row) => row.sodex === symbol);
+  let item: { symbol: string; pair: string; sodex: string } | null = knownItem ? {
+    symbol: knownItem.symbol,
+    pair: knownItem.pair,
+    sodex: knownItem.sodex
+  } : null;
+
+  if (!item) {
+    const tickers = await getSodexTickers();
+    const row = findTickerRow(tickers, symbol, symbol) || tickers.map((entry) => ({ row: entry, identity: inferMarketIdentity(entry) })).find((entry) => entry.identity.symbol === normalizeSymbol(symbol) || entry.identity.sodexSymbol === symbol)?.row;
+    if (!row) return null;
+    const identity = inferMarketIdentity(row);
+    if (!identity.sodexSymbol || !identity.symbol) return null;
+    item = {
+      symbol: identity.symbol,
+      pair: `${identity.base} / ${identity.quote}`,
+      sodex: identity.sodexSymbol
+    };
+  }
+
   const [klinesPayload, orderbookPayload, tradesPayload, tickerPayload] = await Promise.all([
     fetchJson(`${SPOT_ENDPOINT}/markets/${encodeURIComponent(item.sodex)}/klines?interval=1h&limit=48`).catch(() => null),
     fetchJson(`${SPOT_ENDPOINT}/markets/${encodeURIComponent(item.sodex)}/orderbook?limit=12`).catch(() => null),
