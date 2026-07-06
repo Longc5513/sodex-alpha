@@ -153,6 +153,15 @@ function sparkFromChart(chart: CandlePoint[]) {
   return chart.map((point) => point.close);
 }
 
+function deriveVenueChangePercent(tickerRow: AnyRecord | undefined, snapshot: AnyRecord | null) {
+  const last = pickNumber(tickerRow || {}, ['lastPx', 'lastPrice', 'last', 'price', 'close', 'c', 'markPrice', 'indexPrice', 'weightedAvgPrice']);
+  const open = pickNumber(tickerRow || {}, ['openPx', 'openPrice', 'open', 'o']);
+  if (last !== null && open !== null && open > 0) return ((last - open) / open) * 100;
+  const venueChange = pickNumber(tickerRow || {}, ['changePct', 'priceChangePercent', 'priceChangePercentage', 'change24h', 'changePercent', 'P', 'priceChangePct']);
+  if (venueChange !== null) return Math.abs(venueChange) > 1 ? venueChange : venueChange * 100;
+  return (asNumber(snapshot?.change_pct_24h) || 0) * 100;
+}
+
 function deriveSignal(change24h: number): Signal {
   if (change24h > 0.75) return 'BUY';
   if (change24h < -1.25) return 'HOLD';
@@ -231,10 +240,7 @@ async function getSosoIndexKlines(indexTicker: string, limit = 36) {
 
 function assetFromTicker(item: (typeof WATCHLIST)[number], tickerRow: AnyRecord | undefined, chart: CandlePoint[], snapshot: AnyRecord | null, sosoCurrencyId = '') {
   const price = pickNumber(tickerRow || {}, ['lastPrice', 'last', 'price', 'close', 'c', 'markPrice', 'indexPrice', 'weightedAvgPrice']) ?? asNumber(snapshot?.price);
-  const sodexChange = pickNumber(tickerRow || {}, ['priceChangePercent', 'priceChangePercentage', 'change24h', 'changePercent', 'P', 'priceChangePct']);
-  const change24h = sodexChange !== null
-    ? (Math.abs(sodexChange) > 1 ? sodexChange : sodexChange * 100)
-    : (asNumber(snapshot?.change_pct_24h) || 0) * 100;
+  const change24h = deriveVenueChangePercent(tickerRow, snapshot);
   const change7d = snapshot?.roi_7d !== undefined ? (asNumber(snapshot.roi_7d) || 0) * 100 : 0;
   const volume24h = pickNumber(tickerRow || {}, ['quoteVolume', 'volumeUsd', 'volumeUSDC', 'volume24h', 'quoteVolume24h', 'q']) ?? asNumber(snapshot?.turnover_24h);
   const marketCap = asNumber(snapshot?.marketcap);
@@ -277,10 +283,7 @@ function indexFromSnapshot(item: (typeof INDEXES)[number], snapshot: AnyRecord |
 
 function indexFromVenue(item: (typeof INDEXES)[number], tickerRow: AnyRecord | undefined, chart: CandlePoint[], snapshot: AnyRecord | null) {
   const price = pickNumber(tickerRow || {}, ['lastPx', 'lastPrice', 'last', 'price', 'close', 'c', 'markPrice', 'indexPrice', 'weightedAvgPrice']) ?? asNumber(snapshot?.price);
-  const venueChange = pickNumber(tickerRow || {}, ['changePct', 'priceChangePercent', 'priceChangePercentage', 'change24h', 'changePercent', 'P', 'priceChangePct']);
-  const change24h = venueChange !== null
-    ? (Math.abs(venueChange) > 1 ? venueChange : venueChange * 100)
-    : (asNumber(snapshot?.change_pct_24h) || 0) * 100;
+  const change24h = deriveVenueChangePercent(tickerRow, snapshot);
   const change7d = snapshot?.roi_7d !== undefined ? (asNumber(snapshot.roi_7d) || 0) * 100 : 0;
   const volume24h = pickNumber(tickerRow || {}, ['quoteVolume', 'volumeUsd', 'volumeUSDC', 'volume24h', 'quoteVolume24h', 'q']);
   return finishAsset({

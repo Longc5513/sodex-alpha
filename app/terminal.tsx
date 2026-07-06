@@ -1465,6 +1465,64 @@ function buildLivePnl(rows:any[], assets:Asset[]) {
   });
 }
 
+type HeatmapSizeMode = 'volume' | 'marketCap' | 'confidence';
+type HeatmapColorMode = '24h' | '7d';
+type HeatmapRect = { asset: Asset; x: number; y: number; width: number; height: number; weight: number };
+
+function heatmapGroupOf(asset: Asset) {
+  if (asset.symbol === 'SOSO') return 'ValueChain';
+  if (asset.category.includes('SSI')) return 'SoSoValue Indices';
+  return 'Core Markets';
+}
+
+function heatmapSizeLabel(mode: HeatmapSizeMode) {
+  return mode === 'volume' ? '24H volume' : mode === 'marketCap' ? 'market cap' : 'signal confidence';
+}
+
+function heatmapWeight(asset: Asset, mode: HeatmapSizeMode) {
+  if (mode === 'marketCap') return Math.max(asset.marketCap || 0, asset.volume24h || 0, asset.price || 1);
+  if (mode === 'confidence') return Math.max(asset.confidence, Math.abs(asset.change24h) * 8, 12);
+  return Math.max(asset.volume24h || 0, asset.marketCap || 0, asset.price || 1);
+}
+
+function heatmapChange(asset: Asset, mode: HeatmapColorMode) {
+  return mode === '7d' ? asset.change7d : asset.change24h;
+}
+
+function heatmapColor(change: number) {
+  const intensity = clamp(Math.abs(change) / 7.5, 0.12, 1);
+  if (change >= 0) return `linear-gradient(145deg, rgba(37, 255, 138, ${0.18 + intensity * 0.32}), rgba(8, 18, 30, 0.96) 72%)`;
+  return `linear-gradient(145deg, rgba(255, 76, 108, ${0.18 + intensity * 0.32}), rgba(8, 18, 30, 0.96) 72%)`;
+}
+
+function buildTreemapRects(items: { asset: Asset; weight: number }[], x = 0, y = 0, width = 100, height = 100): HeatmapRect[] {
+  if (!items.length) return [];
+  if (items.length === 1) return [{ asset: items[0].asset, weight: items[0].weight, x, y, width, height }];
+  const ordered = items.slice().sort((a, b) => b.weight - a.weight);
+  const total = ordered.reduce((sum, item) => sum + item.weight, 0) || 1;
+  let splitIndex = 1;
+  let running = ordered[0].weight;
+  while (splitIndex < ordered.length - 1 && running / total < 0.5) {
+    running += ordered[splitIndex].weight;
+    splitIndex += 1;
+  }
+  const first = ordered.slice(0, splitIndex);
+  const second = ordered.slice(splitIndex);
+  const firstRatio = first.reduce((sum, item) => sum + item.weight, 0) / total;
+  if (width >= height) {
+    const firstWidth = width * firstRatio;
+    return [
+      ...buildTreemapRects(first, x, y, firstWidth, height),
+      ...buildTreemapRects(second, x + firstWidth, y, width - firstWidth, height)
+    ];
+  }
+  const firstHeight = height * firstRatio;
+  return [
+    ...buildTreemapRects(first, x, y, width, firstHeight),
+    ...buildTreemapRects(second, x, y + firstHeight, width, height - firstHeight)
+  ];
+}
+
 function PortfolioLivePage(props:any) {
   const { wallet, assets } = props;
   const [accountID, setAccountID] = useState('');
@@ -1914,7 +1972,113 @@ function OperatorLabPage(props:any) {
 function Markets(props:any){const [q,setQ]=useState(''); const [sort,setSort]=useState('marketCap'); const filtered=props.assets.filter((a:Asset)=>(a.symbol+a.name).toLowerCase().includes(q.toLowerCase())).sort((a:Asset,b:Asset)=>sort==='gainers'?b.change24h-a.change24h:sort==='volume'?(b.volume24h||0)-(a.volume24h||0):(b.marketCap||0)-(a.marketCap||0)); return <div className="single"><section className="toolBar panel"><input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search markets"/><select value={sort} onChange={e=>setSort(e.target.value)}><option value="marketCap">Market cap</option><option value="gainers">Top gainers</option><option value="volume">Volume</option></select></section><MarketTable {...props} assets={filtered}/>{props.main&&<Candles active={props.main}/>}</div>}
 function Watchlist(props:any){const list=props.assets.filter((a:Asset)=>props.watchlist.includes(a.symbol)); return <div className="single"><section className="market panel"><div className="panelTitle"><b>Watchlist</b><a>{list.length} saved locally</a></div><div className="cards">{props.assets.map((a:Asset)=><button key={a.symbol} className="watchCard" onClick={()=>props.toggleWatch(a.symbol)}><Coin a={a}/><strong>{usd(a.price)}</strong><em className={a.change24h>=0?'green':'red'}>{pct(a.change24h)}</em><span>{props.watchlist.includes(a.symbol)?'Remove from watchlist':'Add to watchlist'}</span></button>)}</div></section></div>}
 function Screener({assets,onPick}:any){const [min,setMin]=useState(0); const [onlyBuy,setOnlyBuy]=useState(false); const rows=assets.filter((a:Asset)=>(a.volume24h||0)>=min && (!onlyBuy||a.signal==='BUY')); return <div className="single"><section className="toolBar panel"><label>Min 24H Volume <input type="number" value={min} onChange={e=>setMin(Number(e.target.value))}/></label><label><input type="checkbox" checked={onlyBuy} onChange={e=>setOnlyBuy(e.target.checked)}/> BUY signals only</label></section><section className="market panel"><div className="panelTitle"><b>Screener Results</b><a>{rows.length} matches</a></div><div className="cards">{rows.map((a:Asset)=><button className="watchCard" key={a.symbol} onClick={()=>onPick(a)}><Coin a={a}/><strong>{usd(a.price)}</strong><em className={a.change24h>=0?'green':'red'}>{pct(a.change24h)}</em><span>{a.signal} · {a.confidence}% confidence</span></button>)}</div></section></div>}
-function Heatmap({assets,onPick}:any){return <div className="single"><section className="market panel"><div className="panelTitle"><b>Heatmap</b><a>Size = volume, color = 24H</a></div><div className="heatmap">{assets.map((a:Asset)=><button onClick={()=>onPick(a)} key={a.symbol} className={a.change24h>=0?'pos':'neg'} style={{gridColumn:`span ${Math.min(4,Math.max(1,Math.ceil(Math.log10((a.volume24h||1)+10)-6)))}`}}><b>{a.symbol}</b><span>{pct(a.change24h)}</span><em>{usd(a.price)}</em></button>)}</div></section></div>}
+function Heatmap({assets,onPick}:any){
+  const [sizeMode,setSizeMode]=useState<HeatmapSizeMode>('volume');
+  const [colorMode,setColorMode]=useState<HeatmapColorMode>('24h');
+  const [groupFilter,setGroupFilter]=useState<'All'|'Core Markets'|'SoSoValue Indices'|'ValueChain'>('All');
+  const groups = useMemo(() => {
+    const bucket = new Map<string, Asset[]>();
+    for (const asset of assets as Asset[]) {
+      const key = heatmapGroupOf(asset);
+      if (groupFilter !== 'All' && key !== groupFilter) continue;
+      bucket.set(key, [...(bucket.get(key) || []), asset]);
+    }
+    return ['Core Markets', 'SoSoValue Indices', 'ValueChain']
+      .filter((key) => bucket.has(key))
+      .map((key) => {
+        const rows = bucket.get(key) || [];
+        const rects = buildTreemapRects(rows.map((asset) => ({ asset, weight: heatmapWeight(asset, sizeMode) })));
+        const totalWeight = rows.reduce((sum, asset) => sum + heatmapWeight(asset, sizeMode), 0);
+        return { key, rows, rects, totalWeight };
+      });
+  }, [assets, groupFilter, sizeMode]);
+  const leader = useMemo(() => {
+    return (assets as Asset[]).slice().sort((a, b) => heatmapWeight(b, sizeMode) - heatmapWeight(a, sizeMode))[0] || null;
+  }, [assets, sizeMode]);
+  return <div className="single">
+    <section className="market panel heatmapPanel">
+      <div className="panelTitle">
+        <b>Market Heatmap</b>
+        <a>Treemap size = {heatmapSizeLabel(sizeMode)}, color = {colorMode === '24h' ? '24H move' : '7D move'}</a>
+      </div>
+      <div className="heatmapToolbar">
+        <div className="heatmapToggle">
+          <span>Size</span>
+          <button className={sizeMode==='volume'?'on':''} onClick={()=>setSizeMode('volume')}>24H Volume</button>
+          <button className={sizeMode==='marketCap'?'on':''} onClick={()=>setSizeMode('marketCap')}>Market Cap</button>
+          <button className={sizeMode==='confidence'?'on':''} onClick={()=>setSizeMode('confidence')}>Signal</button>
+        </div>
+        <div className="heatmapToggle">
+          <span>Color</span>
+          <button className={colorMode==='24h'?'on':''} onClick={()=>setColorMode('24h')}>24H</button>
+          <button className={colorMode==='7d'?'on':''} onClick={()=>setColorMode('7d')}>7D</button>
+        </div>
+        <div className="heatmapToggle">
+          <span>Group</span>
+          {(['All','Core Markets','SoSoValue Indices','ValueChain'] as const).map((label)=><button key={label} className={groupFilter===label?'on':''} onClick={()=>setGroupFilter(label)}>{label}</button>)}
+        </div>
+      </div>
+      <div className="heatmapLegend">
+        <i className="neg">-8%</i>
+        <span/>
+        <span/>
+        <i className="flat">0%</i>
+        <span/>
+        <span/>
+        <i className="pos">+8%</i>
+      </div>
+      <div className="heatmapSummary">
+        <article>
+          <small>Largest block</small>
+          <b>{leader?.symbol || '—'}</b>
+          <span>{leader ? usd(heatmapWeight(leader, sizeMode)) : '—'}</span>
+        </article>
+        <article>
+          <small>Most positive</small>
+          <b>{assets.slice().sort((a:Asset,b:Asset)=>heatmapChange(b,colorMode)-heatmapChange(a,colorMode))[0]?.symbol || '—'}</b>
+          <span className="green">{assets[0] ? pct(heatmapChange(assets.slice().sort((a:Asset,b:Asset)=>heatmapChange(b,colorMode)-heatmapChange(a,colorMode))[0], colorMode)) : '—'}</span>
+        </article>
+        <article>
+          <small>Most negative</small>
+          <b>{assets.slice().sort((a:Asset,b:Asset)=>heatmapChange(a,colorMode)-heatmapChange(b,colorMode))[0]?.symbol || '—'}</b>
+          <span className="red">{assets[0] ? pct(heatmapChange(assets.slice().sort((a:Asset,b:Asset)=>heatmapChange(a,colorMode)-heatmapChange(b,colorMode))[0], colorMode)) : '—'}</span>
+        </article>
+      </div>
+      <div className="heatmapSectors">
+        {groups.map((group)=>(
+          <article className="heatmapSector" key={group.key}>
+            <header>
+              <b>{group.key}</b>
+              <span>{group.rows.length} assets · {usd(group.totalWeight)}</span>
+            </header>
+            <div className="heatmapTreemap">
+              {group.rects.map((rect) => {
+                const change = heatmapChange(rect.asset, colorMode);
+                const compact = rect.width < 24 || rect.height < 20;
+                const tiny = rect.width < 15 || rect.height < 14;
+                return <button
+                  key={rect.asset.symbol}
+                  className="heatmapTile"
+                  style={{left:`${rect.x}%`,top:`${rect.y}%`,width:`${rect.width}%`,height:`${rect.height}%`,background:heatmapColor(change)}}
+                  onClick={()=>onPick(rect.asset)}
+                >
+                  <div className="heatmapTileGlow"/>
+                  <div className="heatmapTileBody">
+                    {!tiny ? <span className="heatmapToken"><TokenBadge a={rect.asset} small/></span> : null}
+                    <b>{rect.asset.symbol}</b>
+                    {!compact ? <small>{rect.asset.name}</small> : null}
+                    <strong className={change>=0?'green':'red'}>{pct(change)}</strong>
+                    {!compact ? <em>{usd(rect.asset.price)}</em> : null}
+                  </div>
+                </button>
+              })}
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  </div>
+}
 function AlphaSignals({assets,addTrade}:any){return <div className="single"><Signals assets={assets} trade={addTrade}/><section className="market panel"><div className="panelTitle"><b>Signal Engine</b><a>Working module</a></div><div className="featureGrid"><article><b>Momentum</b><p>Uses 24H/7D movement to classify market regime.</p></article><article><b>Risk Bands</b><p>Auto-calculates entry, stop-loss and take-profit zones.</p></article><article><b>Router</b><p>Route any signal into Paper Trading using the Route button.</p></article></div></section></div>}
 function PaperTrading({assets,positions,setPositions}:any){const [sym,setSym]=useState('BTC'),[qty,setQty]=useState(1),[side,setSide]=useState<'BUY'|'SELL'>('BUY'); const asset=assets.find((a:Asset)=>a.symbol===sym)||assets[0]; const place=()=>asset?.price&&setPositions([...positions,{symbol:sym,side,qty,entry:asset.price,time:new Date().toISOString()}]); return <div className="single"><section className="market panel"><div className="panelTitle"><b>Paper Trading Desk</b><a>Local simulated execution</a></div><div className="tradeBox"><select value={sym} onChange={e=>setSym(e.target.value)}>{assets.map((a:Asset)=><option key={a.symbol}>{a.symbol}</option>)}</select><select value={side} onChange={e=>setSide(e.target.value as any)}><option>BUY</option><option>SELL</option></select><input type="number" value={qty} onChange={e=>setQty(Number(e.target.value))}/><button onClick={place}>Place Paper Order</button><button onClick={()=>setPositions([])}>Clear</button></div><table><tbody>{positions.slice().reverse().map((p:PaperPosition,i:number)=><tr key={p.time+i}><td>{p.time.slice(11,19)}</td><td>{p.side}</td><td>{p.symbol}</td><td>{p.qty}</td><td>{usd(p.entry)}</td></tr>)}</tbody></table></section></div>}
 function PortfolioPage(props:any){return <div className="single"><PortfolioPanel {...props}/><section className="market panel"><div className="panelTitle"><b>Wallet Holdings</b><a>{props.wallet?'Connected':'Not connected'}</a></div><div className="walletBox">{props.wallet?<><h2>{short(props.wallet.address)}</h2><p>Connected on {chainName(props.wallet.chainId)} with {Number(props.wallet.balance||0).toFixed(6)} ETH. This module reads browser wallet state directly.</p></>:<><h2>No wallet connected</h2><p>Click Connect Wallet in the header. The app will request accounts from MetaMask or any EIP-1193 wallet.</p></>}</div></section></div>}
