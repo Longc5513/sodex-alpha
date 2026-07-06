@@ -21,6 +21,7 @@ type PortfolioLiveData = { address: string; requestedAccountID: string; state: {
 type DecisionLogEntry = { id: string; time: string; symbol: string; side: 'BUY'|'SELL'|'HOLD'; mode: string; price: number; qty: number; confidence: number; spreadBps: number | null; topBid: number | null; topAsk: number | null; depthUsd: number | null; signalReason: string; newsTitle: string; newsLink: string; macroDate: string; macroEvents: string[]; riskGate: string[]; outcome: string };
 type DraftSlice = { step: number; kind: 'LIMIT' | 'MARKET'; price: number | null; qty: number; notional: number };
 type ExecutionDraft = { id: string; createdAt: string; origin: 'rebalance' | 'news-bot' | 'copilot'; symbol: string; sodexSymbol: string; side: 'BUY' | 'SELL'; qty: number; notional: number; confidence: number; mode: 'LIMIT' | 'MARKET'; regime: string; rationale: string; slices: DraftSlice[]; status: 'draft' | 'queued' | 'archived' };
+type MarketDetail = { symbol: string; pair: string; price: number | null; spreadBps: number | null; orderbook: { bids: [number, number][]; asks: [number, number][] }; trades: { time: number; side: string; price: number; size: number }[]; klines: CandlePoint[] };
 
 declare global { interface Window { ethereum?: any } }
 
@@ -1467,7 +1468,7 @@ function buildLivePnl(rows:any[], assets:Asset[]) {
 
 type HeatmapSizeMode = 'volume' | 'marketCap' | 'confidence';
 type HeatmapColorMode = '24h' | '7d';
-type HeatmapRect = { asset: Asset; x: number; y: number; width: number; height: number; weight: number };
+type HeatmapRect<T> = { item: T; x: number; y: number; width: number; height: number; weight: number };
 
 function heatmapGroupOf(asset: Asset) {
   if (asset.symbol === 'SOSO') return 'ValueChain';
@@ -1495,9 +1496,9 @@ function heatmapColor(change: number) {
   return `linear-gradient(145deg, rgba(255, 76, 108, ${0.18 + intensity * 0.32}), rgba(8, 18, 30, 0.96) 72%)`;
 }
 
-function buildTreemapRects(items: { asset: Asset; weight: number }[], x = 0, y = 0, width = 100, height = 100): HeatmapRect[] {
+function buildTreemapRects<T>(items: { item: T; weight: number }[], x = 0, y = 0, width = 100, height = 100): HeatmapRect<T>[] {
   if (!items.length) return [];
-  if (items.length === 1) return [{ asset: items[0].asset, weight: items[0].weight, x, y, width, height }];
+  if (items.length === 1) return [{ item: items[0].item, weight: items[0].weight, x, y, width, height }];
   const ordered = items.slice().sort((a, b) => b.weight - a.weight);
   const total = ordered.reduce((sum, item) => sum + item.weight, 0) || 1;
   let splitIndex = 1;
@@ -1521,6 +1522,11 @@ function buildTreemapRects(items: { asset: Asset; weight: number }[], x = 0, y =
     ...buildTreemapRects(first, x, y, width, firstHeight),
     ...buildTreemapRects(second, x, y + firstHeight, width, height - firstHeight)
   ];
+}
+
+function pathToMenu(pathname: string) {
+  const normalized = pathname === '/' ? '/launch' : pathname.toLowerCase();
+  return nav.find((label) => pathOf(label) === normalized) || 'Launch';
 }
 
 function PortfolioLivePage(props:any) {
@@ -1972,10 +1978,12 @@ function OperatorLabPage(props:any) {
 function Markets(props:any){const [q,setQ]=useState(''); const [sort,setSort]=useState('marketCap'); const filtered=props.assets.filter((a:Asset)=>(a.symbol+a.name).toLowerCase().includes(q.toLowerCase())).sort((a:Asset,b:Asset)=>sort==='gainers'?b.change24h-a.change24h:sort==='volume'?(b.volume24h||0)-(a.volume24h||0):(b.marketCap||0)-(a.marketCap||0)); return <div className="single"><section className="toolBar panel"><input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search markets"/><select value={sort} onChange={e=>setSort(e.target.value)}><option value="marketCap">Market cap</option><option value="gainers">Top gainers</option><option value="volume">Volume</option></select></section><MarketTable {...props} assets={filtered}/>{props.main&&<Candles active={props.main}/>}</div>}
 function Watchlist(props:any){const list=props.assets.filter((a:Asset)=>props.watchlist.includes(a.symbol)); return <div className="single"><section className="market panel"><div className="panelTitle"><b>Watchlist</b><a>{list.length} saved locally</a></div><div className="cards">{props.assets.map((a:Asset)=><button key={a.symbol} className="watchCard" onClick={()=>props.toggleWatch(a.symbol)}><Coin a={a}/><strong>{usd(a.price)}</strong><em className={a.change24h>=0?'green':'red'}>{pct(a.change24h)}</em><span>{props.watchlist.includes(a.symbol)?'Remove from watchlist':'Add to watchlist'}</span></button>)}</div></section></div>}
 function Screener({assets,onPick}:any){const [min,setMin]=useState(0); const [onlyBuy,setOnlyBuy]=useState(false); const rows=assets.filter((a:Asset)=>(a.volume24h||0)>=min && (!onlyBuy||a.signal==='BUY')); return <div className="single"><section className="toolBar panel"><label>Min 24H Volume <input type="number" value={min} onChange={e=>setMin(Number(e.target.value))}/></label><label><input type="checkbox" checked={onlyBuy} onChange={e=>setOnlyBuy(e.target.checked)}/> BUY signals only</label></section><section className="market panel"><div className="panelTitle"><b>Screener Results</b><a>{rows.length} matches</a></div><div className="cards">{rows.map((a:Asset)=><button className="watchCard" key={a.symbol} onClick={()=>onPick(a)}><Coin a={a}/><strong>{usd(a.price)}</strong><em className={a.change24h>=0?'green':'red'}>{pct(a.change24h)}</em><span>{a.signal} · {a.confidence}% confidence</span></button>)}</div></section></div>}
-function Heatmap({assets,onPick}:any){
+function Heatmap({assets,onPick,openMenu}:any){
   const [sizeMode,setSizeMode]=useState<HeatmapSizeMode>('volume');
   const [colorMode,setColorMode]=useState<HeatmapColorMode>('24h');
   const [groupFilter,setGroupFilter]=useState<'All'|'Core Markets'|'SoSoValue Indices'|'ValueChain'>('All');
+  const [detailCache,setDetailCache]=useState<Record<string, MarketDetail | null>>({});
+  const [hovered,setHovered]=useState<{ symbol: string; x: number; y: number } | null>(null);
   const groups = useMemo(() => {
     const bucket = new Map<string, Asset[]>();
     for (const asset of assets as Asset[]) {
@@ -1987,19 +1995,38 @@ function Heatmap({assets,onPick}:any){
       .filter((key) => bucket.has(key))
       .map((key) => {
         const rows = bucket.get(key) || [];
-        const rects = buildTreemapRects(rows.map((asset) => ({ asset, weight: heatmapWeight(asset, sizeMode) })));
         const totalWeight = rows.reduce((sum, asset) => sum + heatmapWeight(asset, sizeMode), 0);
-        return { key, rows, rects, totalWeight };
+        return { key, rows, totalWeight };
       });
   }, [assets, groupFilter, sizeMode]);
+  const sectorRects = useMemo(() => {
+    return buildTreemapRects(groups.map((group) => ({ item: group, weight: Math.max(group.totalWeight, 1) })));
+  }, [groups]);
   const leader = useMemo(() => {
     return (assets as Asset[]).slice().sort((a, b) => heatmapWeight(b, sizeMode) - heatmapWeight(a, sizeMode))[0] || null;
   }, [assets, sizeMode]);
+  const winner = useMemo(() => (assets as Asset[]).slice().sort((a, b) => b.change24h - a.change24h)[0] || null, [assets]);
+  const laggard = useMemo(() => (assets as Asset[]).slice().sort((a, b) => a.change24h - b.change24h)[0] || null, [assets]);
+  const executionCandidate = useMemo(() => (assets as Asset[]).slice().sort((a, b) => scoreBotCandidate(b, 'Trend') - scoreBotCandidate(a, 'Trend'))[0] || null, [assets]);
+  useEffect(() => {
+    if (!hovered?.symbol || detailCache[hovered.symbol] !== undefined) return;
+    let live = true;
+    fetch(`/api/market?symbol=${encodeURIComponent(hovered.symbol)}`, { cache: 'no-store' })
+      .then((res) => res.json())
+      .then((json) => { if (live) setDetailCache((prev) => ({ ...prev, [hovered.symbol]: json.detail || null })); })
+      .catch(() => { if (live) setDetailCache((prev) => ({ ...prev, [hovered.symbol]: null })); });
+    return () => { live = false; };
+  }, [hovered?.symbol, detailCache]);
+  const hoveredAsset = hovered ? (assets as Asset[]).find((asset) => asset.symbol === hovered.symbol) || null : null;
+  const hoveredDetail = hovered?.symbol ? detailCache[hovered.symbol] : null;
+  const hoveredDepthUsd = hoveredDetail ? hoveredDetail.orderbook.bids.slice(0, 4).reduce((sum, [price, size]) => sum + price * size, 0) + hoveredDetail.orderbook.asks.slice(0, 4).reduce((sum, [price, size]) => sum + price * size, 0) : null;
+  const viewportWidth = typeof window === 'undefined' ? 1440 : window.innerWidth;
+  const tooltipLeft = hovered ? Math.max(18, Math.min(hovered.x + 18, viewportWidth - 290)) : 18;
   return <div className="single">
     <section className="market panel heatmapPanel">
       <div className="panelTitle">
         <b>Market Heatmap</b>
-        <a>Treemap size = {heatmapSizeLabel(sizeMode)}, color = {colorMode === '24h' ? '24H move' : '7D move'}</a>
+        <a>Full-screen treemap size = {heatmapSizeLabel(sizeMode)}, color = {colorMode === '24h' ? '24H move' : '7D move'}</a>
       </div>
       <div className="heatmapToolbar">
         <div className="heatmapToggle">
@@ -2044,37 +2071,81 @@ function Heatmap({assets,onPick}:any){
           <span className="red">{assets[0] ? pct(heatmapChange(assets.slice().sort((a:Asset,b:Asset)=>heatmapChange(a,colorMode)-heatmapChange(b,colorMode))[0], colorMode)) : '—'}</span>
         </article>
       </div>
-      <div className="heatmapSectors">
-        {groups.map((group)=>(
-          <article className="heatmapSector" key={group.key}>
+      <div className="heatmapStage">
+        {sectorRects.map((sectorRect) => {
+          const group = sectorRect.item;
+          const assetRects = buildTreemapRects(group.rows.map((asset) => ({ item: asset, weight: Math.max(heatmapWeight(asset, sizeMode), 1) })));
+          return <article className="heatmapSectorCard" key={group.key} style={{ left: `${sectorRect.x}%`, top: `${sectorRect.y}%`, width: `${sectorRect.width}%`, height: `${sectorRect.height}%` }}>
             <header>
               <b>{group.key}</b>
               <span>{group.rows.length} assets · {usd(group.totalWeight)}</span>
             </header>
-            <div className="heatmapTreemap">
-              {group.rects.map((rect) => {
-                const change = heatmapChange(rect.asset, colorMode);
-                const compact = rect.width < 24 || rect.height < 20;
-                const tiny = rect.width < 15 || rect.height < 14;
+            <div className="heatmapTreemap heatmapTreemapFull">
+              {assetRects.map((rect) => {
+                const asset = rect.item;
+                const change = heatmapChange(asset, colorMode);
+                const compact = rect.width < 23 || rect.height < 18;
+                const tiny = rect.width < 14 || rect.height < 13;
                 return <button
-                  key={rect.asset.symbol}
+                  key={asset.symbol}
                   className="heatmapTile"
                   style={{left:`${rect.x}%`,top:`${rect.y}%`,width:`${rect.width}%`,height:`${rect.height}%`,background:heatmapColor(change)}}
-                  onClick={()=>onPick(rect.asset)}
+                  onMouseEnter={(event)=>setHovered({ symbol: asset.symbol, x: event.clientX, y: event.clientY })}
+                  onMouseMove={(event)=>setHovered({ symbol: asset.symbol, x: event.clientX, y: event.clientY })}
+                  onMouseLeave={()=>setHovered((prev)=>prev?.symbol===asset.symbol?null:prev)}
+                  onClick={() => { onPick(asset); openMenu('Execution', asset.symbol); }}
                 >
                   <div className="heatmapTileGlow"/>
                   <div className="heatmapTileBody">
-                    {!tiny ? <span className="heatmapToken"><TokenBadge a={rect.asset} small/></span> : null}
-                    <b>{rect.asset.symbol}</b>
-                    {!compact ? <small>{rect.asset.name}</small> : null}
+                    {!tiny ? <span className="heatmapToken"><TokenBadge a={asset} small/></span> : null}
+                    <b>{asset.symbol}</b>
+                    {!compact ? <small>{asset.name}</small> : null}
                     <strong className={change>=0?'green':'red'}>{pct(change)}</strong>
-                    {!compact ? <em>{usd(rect.asset.price)}</em> : null}
+                    {!compact ? <em>{usd(asset.price)}</em> : null}
                   </div>
-                </button>
+                </button>;
               })}
             </div>
-          </article>
-        ))}
+          </article>;
+        })}
+        {hoveredAsset && hovered ? <div className="heatmapTooltip" style={{ left: tooltipLeft, top: hovered.y - 10 }}>
+          <div className="heatmapTooltipHead">
+            <span className="heatmapToken"><TokenBadge a={hoveredAsset} small/></span>
+            <div>
+              <b>{hoveredAsset.symbol}</b>
+              <small>{hoveredAsset.name}</small>
+            </div>
+            <em className={hoveredAsset.change24h >= 0 ? 'green' : 'red'}>{pct(hoveredAsset.change24h)}</em>
+          </div>
+          <div className="heatmapTooltipGrid">
+            <span>Price</span><b>{usd(hoveredAsset.price)}</b>
+            <span>Signal</span><b>{hoveredAsset.signal} · {hoveredAsset.confidence}%</b>
+            <span>24H Vol</span><b>{usd(hoveredAsset.volume24h)}</b>
+            <span>Spread</span><b>{hoveredDetail?.spreadBps !== null && hoveredDetail?.spreadBps !== undefined ? formatBp(hoveredDetail.spreadBps) : 'Loading...'}</b>
+            <span>Top Bid / Ask</span><b>{hoveredDetail ? `${usd(hoveredDetail.orderbook.bids[0]?.[0] || null)} / ${usd(hoveredDetail.orderbook.asks[0]?.[0] || null)}` : 'Loading...'}</b>
+            <span>Visible Depth</span><b>{hoveredDepthUsd !== null ? usd(hoveredDepthUsd) : 'Loading...'}</b>
+          </div>
+        </div> : null}
+      </div>
+      <div className="heatmapPulse">
+        <article>
+          <small>Rotation Leader</small>
+          <b>{winner?.symbol || '—'}</b>
+          <p>{winner ? `${winner.name} is leading the tape with ${pct(winner.change24h)} and ${usd(winner.volume24h)} in 24H volume.` : 'Waiting for live tape.'}</p>
+          {winner ? <button className="miniBtn" onClick={() => openMenu('Execution', winner.symbol)}>Route Leader</button> : null}
+        </article>
+        <article>
+          <small>Contrarian Pocket</small>
+          <b>{laggard?.symbol || '—'}</b>
+          <p>{laggard ? `${laggard.name} is the weakest block. Use it for mean-reversion or risk-off hedging when spread stays clean.` : 'Waiting for live tape.'}</p>
+          {laggard ? <button className="miniBtn" onClick={() => openMenu('Execution', laggard.symbol)}>Open Hedge View</button> : null}
+        </article>
+        <article>
+          <small>Execution Candidate</small>
+          <b>{executionCandidate?.symbol || '—'}</b>
+          <p>{executionCandidate ? `Highest blended trend/liquidity score right now. This is the fastest path from heatmap to a staged SoDEX order plan.` : 'Waiting for live tape.'}</p>
+          {executionCandidate ? <button className="miniBtn" onClick={() => openMenu('Execution', executionCandidate.symbol)}>Stage Order Plan</button> : null}
+        </article>
       </div>
     </section>
   </div>
@@ -2092,12 +2163,37 @@ export default function Terminal({initialMenu='Launch'}:{initialMenu?:string}){
   const loadMarket=useCallback(async()=>{setLoading(true); try{const d=await fetch('/api/market',{cache:'no-store'}).then(r=>r.json()); const next=d.assets||[]; setAssets(next); setOverview(d.overview || null); setActive(prev=>next.find((a:Asset)=>a.symbol===prev?.symbol)||next[0]||null)}finally{setLoading(false)}},[]);
   useEffect(()=>{loadMarket(); const t=setInterval(loadMarket,60000); return()=>clearInterval(t)},[loadMarket]);
   const toggleWatch=(s:string)=>setWatchlist(watchlist.includes(s)?watchlist.filter(x=>x!==s):[...watchlist,s]);
+  const openMenu = useCallback((menu: string, symbol?: string) => {
+    if (typeof window === 'undefined') return;
+    const nextPath = pathOf(menu);
+    const url = new URL(window.location.href);
+    url.pathname = nextPath;
+    if (symbol) url.searchParams.set('symbol', symbol);
+    else url.searchParams.delete('symbol');
+    window.history.pushState(null, '', `${url.pathname}${url.search}`);
+    setActiveMenu(menu);
+    if (symbol) setActive((prev) => assets.find((asset) => asset.symbol === symbol) || prev);
+  }, [assets]);
   const addTrade=(a:Asset)=>{ if(!a.price)return; const side=a.signal==='HOLD'?'SELL':'BUY'; const time=new Date().toISOString(); setPositions([...positions,{symbol:a.symbol,side,qty:1,entry:a.price,time}]); setDecisionLog([{id:`${Date.now()}-${a.symbol}-signal`,time,symbol:a.symbol,side,mode:'Signal / Paper Route',price:a.price,qty:1,confidence:a.confidence,spreadBps:null,topBid:null,topAsk:null,depthUsd:null,signalReason:`${a.signal} routed from signal panel`,newsTitle:'',newsLink:'',macroDate:'',macroEvents:[],riskGate:['Paper mode'],outcome:'Routed to paper trading'},...decisionLog.slice(0,59)]); setActiveMenu('Paper Trading'); };
   const readWallet=useCallback(async(address:string)=>{const eth=window.ethereum; const [chainId,rawBalance]=await Promise.all([eth.request({method:'eth_chainId'}),eth.request({method:'eth_getBalance',params:[address,'latest']})]); setWallet({address,chainId,balance:(Number(BigInt(rawBalance))/1e18).toString()}); localStorage.setItem('sodex.wallet.connected','1')},[]);
   const connect=async()=>{setWalletError(''); const eth=window.ethereum; if(!eth){setWalletError('No browser wallet detected. Install MetaMask or open in a Web3 browser.'); return} try{const acc=await eth.request({method:'eth_requestAccounts'}); if(acc?.[0]) await readWallet(acc[0])}catch(e:any){setWalletError(e?.message||'Wallet connection rejected.')}};
   const disconnect=()=>{setWallet(null); localStorage.removeItem('sodex.wallet.connected')};
   useEffect(()=>{const eth=window.ethereum; if(!eth)return; if(localStorage.getItem('sodex.wallet.connected')) eth.request({method:'eth_accounts'}).then((a:string[])=>a?.[0]&&readWallet(a[0])).catch(()=>{}); const onAcc=(a:string[])=>a?.[0]?readWallet(a[0]):disconnect(); const onChain=()=>wallet?.address&&readWallet(wallet.address); eth.on?.('accountsChanged',onAcc); eth.on?.('chainChanged',onChain); return()=>{eth.removeListener?.('accountsChanged',onAcc); eth.removeListener?.('chainChanged',onChain)}},[readWallet,wallet?.address]);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const syncRoute = () => {
+      setActiveMenu(pathToMenu(window.location.pathname));
+      const symbol = (new URL(window.location.href)).searchParams.get('symbol');
+      if (symbol) {
+        const upper = symbol.toUpperCase();
+        setActive((prev) => assets.find((asset) => asset.symbol === upper) || prev);
+      }
+    };
+    syncRoute();
+    window.addEventListener('popstate', syncRoute);
+    return () => window.removeEventListener('popstate', syncRoute);
+  }, [assets]);
   const main=active||assets[0]; const marketCap=assets.reduce((s,a)=>s+(a.marketCap||0),0), volume=assets.reduce((s,a)=>s+(a.volume24h||0),0); const props={assets,main,onPick:setActive,wallet,watchlist,toggleWatch,positions,setPositions,addTrade,overview,decisionLog,setDecisionLog,drafts,setDrafts};
-  const page = activeMenu==='Launch'?<LaunchPanel {...props}/>:activeMenu==='Judges'?<JudgesPanel {...props}/>:activeMenu==='Execution'?<ExecutionDesk {...props}/>:activeMenu==='Operator Lab'?<OperatorLabPage {...props}/>:activeMenu==='Decision Log'?<DecisionLogPage />:activeMenu==='Markets'?<Markets {...props}/>:activeMenu==='Watchlist'?<Watchlist {...props}/>:activeMenu==='Alpha Signals'?<AlphaSignals {...props}/>:activeMenu==='Screener'?<Screener {...props}/>:activeMenu==='Heatmap'?<Heatmap {...props}/>:activeMenu==='Portfolio'?<PortfolioPage {...props}/>:activeMenu==='Portfolio Live'?<PortfolioLivePage {...props}/>:activeMenu==='Paper Trading'?<PaperTrading {...props}/>:activeMenu==='Alerts'?<NewsExecutionBotPage {...props}/>:activeMenu==='Diag'?<DiagPanel {...props}/>:activeMenu==='AI Research'?<ResearchPanel {...props}/>:activeMenu==='News & Insights'?<NewsFeedPanel />:activeMenu==='SoSoValue Indexes'?<IndexRebalanceExecutor {...props}/>:main?<LaunchPanel {...props}/>:null;
-  return <main className="app"><aside className="sidebar"><div className="logo brandLogo"><img src="/sodex-logo.jpg" alt="SoDEX logo"/><p><b>SoDEX</b><span>ALPHA TERMINAL</span></p></div><nav>{nav.map((n,i)=><a key={n} href={pathOf(n)} onClick={(e)=>{e.preventDefault(); window.history.pushState(null,'',pathOf(n)); setActiveMenu(n)}} className={activeMenu===n?'active':''}><span>{navIcons[i]}</span>{n}{n==='Alpha Signals'&&<em>LIVE</em>}</a>)}</nav><div className="community"><small>OFFICIAL & COMMUNITY</small>{official.map(([l,h])=><a key={l} href={h} target="_blank" rel="noreferrer">{l}<span>↗</span></a>)}</div></aside><section className="desk"><header className="playerBar compactBar"><div className="theme launchTheme"><div className="disc">◎</div><p><b>SoSoValue Launch Rail</b><span>Research, execution, diagnostics in one desk</span></p></div><div className="actions"><button className="bell" onClick={loadMarket}>{loading?'↻':'⟳'}</button>{wallet?<button onClick={disconnect} className="wallet">{short(wallet.address)} · Disconnect</button>:<button onClick={connect} className="wallet">Connect Wallet</button>}<button className="sun">✦</button></div></header>{walletError&&<div className="walletError">{walletError}</div>}<div className="ticker">{assets.map(a=><button key={a.symbol} onClick={()=>setActive(a)}><b>{a.symbol}</b><span>{usd(a.price)}</span><em className={a.change24h>=0?'green':'red'}>{pct(a.change24h)}</em></button>)}<button><span>Market Cap</span><b>{usd(overview?.totalMarketCap ?? marketCap)}</b><em>{overview?.leaders?.[0] || 'live'}</em></button><button><span>24H Vol</span><b>{usd(overview?.totalVolume24h ?? volume)}</b><em>{overview?.breadthPct ? `${Math.round(overview.breadthPct)}% green` : 'live'}</em></button><button><span>BTC.D</span><b>{overview?.btcDominance ? `${overview.btcDominance.toFixed(2)}%` : '—'}</b><em>{overview?.leaders?.slice(0,2).join(' · ') || 'SoSoValue'}</em></button></div>{page}</section></main>
+  const page = activeMenu==='Launch'?<LaunchPanel {...props}/>:activeMenu==='Judges'?<JudgesPanel {...props}/>:activeMenu==='Execution'?<ExecutionDesk {...props}/>:activeMenu==='Operator Lab'?<OperatorLabPage {...props}/>:activeMenu==='Decision Log'?<DecisionLogPage />:activeMenu==='Markets'?<Markets {...props}/>:activeMenu==='Watchlist'?<Watchlist {...props}/>:activeMenu==='Alpha Signals'?<AlphaSignals {...props}/>:activeMenu==='Screener'?<Screener {...props}/>:activeMenu==='Heatmap'?<Heatmap {...props} openMenu={openMenu}/>:activeMenu==='Portfolio'?<PortfolioPage {...props}/>:activeMenu==='Portfolio Live'?<PortfolioLivePage {...props}/>:activeMenu==='Paper Trading'?<PaperTrading {...props}/>:activeMenu==='Alerts'?<NewsExecutionBotPage {...props}/>:activeMenu==='Diag'?<DiagPanel {...props}/>:activeMenu==='AI Research'?<ResearchPanel {...props}/>:activeMenu==='News & Insights'?<NewsFeedPanel />:activeMenu==='SoSoValue Indexes'?<IndexRebalanceExecutor {...props}/>:main?<LaunchPanel {...props}/>:null;
+  return <main className="app"><aside className="sidebar"><div className="logo brandLogo"><img src="/sodex-logo.jpg" alt="SoDEX logo"/><p><b>SoDEX</b><span>ALPHA TERMINAL</span></p></div><nav>{nav.map((n,i)=><a key={n} href={pathOf(n)} onClick={(e)=>{e.preventDefault(); openMenu(n)}} className={activeMenu===n?'active':''}><span>{navIcons[i]}</span>{n}{n==='Alpha Signals'&&<em>LIVE</em>}</a>)}</nav><div className="community"><small>OFFICIAL & COMMUNITY</small>{official.map(([l,h])=><a key={l} href={h} target="_blank" rel="noreferrer">{l}<span>↗</span></a>)}</div></aside><section className="desk"><header className="playerBar compactBar"><div className="theme launchTheme"><div className="disc">◎</div><p><b>SoSoValue Launch Rail</b><span>Research, execution, diagnostics in one desk</span></p></div><div className="actions"><button className="bell" onClick={loadMarket}>{loading?'↻':'⟳'}</button>{wallet?<button onClick={disconnect} className="wallet">{short(wallet.address)} · Disconnect</button>:<button onClick={connect} className="wallet">Connect Wallet</button>}<button className="sun">✦</button></div></header>{walletError&&<div className="walletError">{walletError}</div>}<div className="ticker">{assets.map(a=><button key={a.symbol} onClick={()=>setActive(a)}><b>{a.symbol}</b><span>{usd(a.price)}</span><em className={a.change24h>=0?'green':'red'}>{pct(a.change24h)}</em></button>)}<button><span>Market Cap</span><b>{usd(overview?.totalMarketCap ?? marketCap)}</b><em>{overview?.leaders?.[0] || 'live'}</em></button><button><span>24H Vol</span><b>{usd(overview?.totalVolume24h ?? volume)}</b><em>{overview?.breadthPct ? `${Math.round(overview.breadthPct)}% green` : 'live'}</em></button><button><span>BTC.D</span><b>{overview?.btcDominance ? `${overview.btcDominance.toFixed(2)}%` : '—'}</b><em>{overview?.leaders?.slice(0,2).join(' · ') || 'SoSoValue'}</em></button></div>{page}</section></main>
 }
