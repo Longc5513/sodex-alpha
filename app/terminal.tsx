@@ -20,11 +20,13 @@ type LiveNewsItem = { id: string; source: 'hot' | 'featured'; title: string; sum
 type MacroEvent = { date: string; events: string[] };
 type PortfolioLiveData = { address: string; requestedAccountID: string; state: { user: string; aid: number; uid: number; balancesRaw: any[]; openOrdersRaw: any[] }; balances: { coin: string; total: number | null; available: number | null; locked: number | null }[]; openOrders: any[]; orderHistory: any[]; trades: any[]; feeRate: any; apiKeys: any[]; accountReady: boolean; serverSignerLoaded: boolean; configuredApiPublicKey?: string };
 type DecisionLogEntry = { id: string; time: string; symbol: string; side: 'BUY'|'SELL'|'HOLD'; mode: string; price: number; qty: number; confidence: number; spreadBps: number | null; topBid: number | null; topAsk: number | null; depthUsd: number | null; signalReason: string; newsTitle: string; newsLink: string; macroDate: string; macroEvents: string[]; riskGate: string[]; outcome: string };
+type DraftSlice = { step: number; kind: 'LIMIT' | 'MARKET'; price: number | null; qty: number; notional: number };
+type ExecutionDraft = { id: string; createdAt: string; origin: 'rebalance' | 'news-bot' | 'copilot'; symbol: string; sodexSymbol: string; side: 'BUY' | 'SELL'; qty: number; notional: number; confidence: number; mode: 'LIMIT' | 'MARKET'; regime: string; rationale: string; slices: DraftSlice[]; status: 'draft' | 'queued' | 'archived' };
 
 declare global { interface Window { ethereum?: any } }
 
-const nav = ['Launch','Judges','Execution','Decision Log','Markets','Watchlist','Alpha Signals','Screener','Heatmap','Portfolio','Portfolio Live','Paper Trading','News & Insights','SoSoValue Indexes','On-Chain','AI Research','Alerts','Leaderboard','Settings','Diag'];
-const navIcons = ['⌂','⚖','⇢','≣','⌁','★','◌','⚗','⌘','▣','◫','◎','▤','◈','⌬','✺','♧','♕','⚙','◧'];
+const nav = ['Launch','Judges','Execution','Operator Lab','Decision Log','Markets','Watchlist','Alpha Signals','Screener','Heatmap','Portfolio','Portfolio Live','Paper Trading','News & Insights','SoSoValue Indexes','On-Chain','AI Research','Alerts','Leaderboard','Settings','Diag'];
+const navIcons = ['⌂','⚖','⇢','⛭','≣','⌁','★','◌','⚗','⌘','▣','◫','◎','▤','◈','⌬','✺','♧','♕','⚙','◧'];
 const official = [['SoSoValue Project','https://sosovalue.com/'],['SoSoValue Console','https://sosovalue.com/developer/dashboard'],['SoSoValue API Docs','https://sosovalue-1.gitbook.io/sosovalue-api-doc'],['SoDEX Official','https://sodex.com/'],['SoDEX REST API','https://sodex.com/documentation/trading-api/rest-v1'],['Telegram','https://t.me/SoSoValueCommunity'],['Discord','https://discord.gg/sodex'],['Follow SoSoValue','https://x.com/SoSoValueCrypto'],['Follow SoDEX','https://x.com/sodex_official']];
 const pathOf = (n:string)=> `/${n.toLowerCase().replace(/&/g,'and').replace(/\s+/g,'-').replace(/[^a-z0-9-]/g,'')}`;
 const usd = (n:number|null)=> n==null||Number.isNaN(n) ? '—' : n>=1e12?`$${(n/1e12).toFixed(2)}T`:n>=1e9?`$${(n/1e9).toFixed(2)}B`:n>=1e6?`$${(n/1e6).toFixed(2)}M`:n>=1000?`$${n.toLocaleString(undefined,{maximumFractionDigits:0})}`:n>=1?`$${n.toLocaleString(undefined,{maximumFractionDigits:2})}`:`$${n.toLocaleString(undefined,{maximumFractionDigits:4})}`;
@@ -231,6 +233,46 @@ function scoreNewsImpact(asset: Asset, stories: LiveNewsItem[], macro: MacroEven
   return mentions * 12 + momentum + confidence;
 }
 
+function deriveNewsRegime(stories: LiveNewsItem[], macro: MacroEvent[], asset: Asset) {
+  const storyText = stories.slice(0, 12).map((row) => `${row.title} ${row.summary} ${row.tags?.join(' ') || ''}`).join(' ').toLowerCase();
+  const macroText = macro.slice(0, 4).map((row) => row.events.join(' ')).join(' ').toLowerCase();
+  const symbolMention = storyText.includes(asset.symbol.toLowerCase()) || storyText.includes(asset.name.toLowerCase());
+  const positive = /(etf|approval|partnership|launch|treasury|buyback|adoption|upgrade|growth|flows)/.test(storyText);
+  const negative = /(hack|exploit|outflow|lawsuit|ban|liquidation|selloff|shutdown|breach)/.test(storyText);
+  const macroHot = /(cpi|fomc|powell|fed|inflation|payroll|jobs|pmi|rates|treasury|gdp)/.test(macroText);
+  const volatilityRegime = macroHot ? 'Macro Event Risk' : negative ? 'Defensive Tape' : positive ? 'Risk-On Expansion' : 'Balanced Tape';
+  const urgency = macroHot ? 0.82 : symbolMention && positive ? 0.74 : symbolMention && negative ? 0.58 : 0.48;
+  const side = negative ? (asset.change24h < 0 ? 'SELL' : 'BUY') : asset.change24h >= 0 ? 'BUY' : 'SELL';
+  const mode: 'LIMIT' | 'MARKET' = macroHot || (!negative && urgency > 0.7) ? 'MARKET' : 'LIMIT';
+  const notes = [
+    symbolMention ? `${asset.symbol} is mentioned in current SoSoValue tape.` : `${asset.symbol} inherits macro regime without direct mention.`,
+    macroHot ? 'Macro calendar is hot, so speed matters more than passive fills.' : 'No hot macro catalyst, so passive staging is preferred.',
+    positive ? 'Narrative bias is risk-on.' : negative ? 'Narrative bias is defensive.' : 'Narrative is balanced.'
+  ];
+  return { volatilityRegime, urgency, side, mode, notes };
+}
+
+function buildDraftSlices(asset: Asset, side: 'BUY' | 'SELL', qty: number, mode: 'LIMIT' | 'MARKET', urgency: number, regime: string) {
+  const base = asset.price || 0;
+  const spread = deriveSpread(asset, asset.confidence) / 100;
+  const slices = mode === 'MARKET' ? 2 : urgency > 0.75 ? 3 : urgency > 0.55 ? 4 : 5;
+  const bias = side === 'BUY' ? -1 : 1;
+  return Array.from({ length: slices }, (_, index) => {
+    const step = index + 1;
+    const weight = mode === 'MARKET' ? 1 / slices : (slices - index) / ((slices * (slices + 1)) / 2);
+    const sliceQty = Number((qty * weight).toFixed(4));
+    const drift = mode === 'MARKET' ? spread * 0.65 * step : spread * (regime === 'Defensive Tape' ? 0.4 : 0.28) * step;
+    const price = mode === 'MARKET' ? null : Number((base * (1 + bias * drift)).toFixed(4));
+    return {
+      step,
+      kind: mode,
+      price,
+      qty: sliceQty,
+      notional: Number((((price || base) * sliceQty) || 0).toFixed(2))
+    } satisfies DraftSlice;
+  }).filter((row) => row.qty > 0);
+}
+
 function BasketBacktest({assets}:{assets:Asset[]}) {
   const [mode, setMode] = useState<'Core'|'Momentum'|'ValueChain'>('Core');
   const config = REBALANCE_BASKETS[mode];
@@ -366,7 +408,7 @@ function JudgesPanel(props:any) {
 }
 
 function ExecutionDesk(props:any) {
-  const { assets, addTrade, positions, setPositions, wallet } = props;
+  const { assets, addTrade, positions, setPositions, wallet, drafts, setDrafts } = props;
   const tradable = useMemo(() => assets.filter((asset: Asset) => asset.price !== null), [assets]);
   const [symbol, setSymbol] = useState(tradable[0]?.symbol || 'BTC');
   const [budget, setBudget] = useState(1000);
@@ -514,6 +556,20 @@ function ExecutionDesk(props:any) {
       signal: side === 'BUY' ? 'BUY' : 'HOLD'
     });
   };
+  const pendingDraft = drafts.find((row:ExecutionDraft) => row.status === 'draft');
+  const applyDraft = useCallback((draft: ExecutionDraft) => {
+    setSymbol(draft.symbol);
+    setSide(draft.side);
+    setBudget(Math.max(100, Math.round(draft.notional)));
+    setLiveQuantity(String(Number(draft.qty.toFixed(4))));
+    setLiveFunds(String(Math.max(50, Math.round(draft.notional))));
+    setOrderType(draft.mode);
+    const firstPricedSlice = draft.slices.find((row) => row.price);
+    setLivePrice(firstPricedSlice?.price ? String(firstPricedSlice.price) : String(asset?.price || ''));
+    setFlowBias(draft.mode === 'MARKET' ? 'Aggressive' : draft.slices.length >= 5 ? 'Patient' : 'Balanced');
+    setLiveStatus(`Loaded ${draft.origin} draft for ${draft.symbol}`);
+    setDrafts(drafts.map((row:ExecutionDraft) => row.id === draft.id ? { ...row, status: 'queued' } : row));
+  }, [drafts, setDrafts, asset?.price]);
 
   const runBotScan = useCallback(() => {
     if (!tradable.length) return;
@@ -804,6 +860,21 @@ function ExecutionDesk(props:any) {
           <article><b>Signal context</b><p>Uses the current SoDEX row and SoSoValue signals already on the page.</p></article>
           <article><b>Execution path</b><p>Supports paper route plus live SoDEX order flow with server-side or browser-wallet signing.</p></article>
         </div>
+        {pendingDraft ? <div className="judgeHeroCard" style={{ margin: '14px 0 0' }}>
+          <div>
+            <span>{pendingDraft.origin.toUpperCase()} draft</span>
+            <h3>{pendingDraft.symbol} · {pendingDraft.side} · {pendingDraft.regime}</h3>
+            <p style={{ color: '#c8d3e6', lineHeight: 1.6 }}>{pendingDraft.rationale}</p>
+          </div>
+          <div className="judgeScore">
+            <b>{pendingDraft.slices.length} slices</b>
+            <p>{usd(pendingDraft.notional)} notional · {pendingDraft.mode} routing plan</p>
+            <div className="launchCtas" style={{ marginTop: '12px' }}>
+              <button className="miniBtn" onClick={() => applyDraft(pendingDraft)}>Load into execution</button>
+              <a className="miniBtn" href="/operator-lab">Open Operator Lab</a>
+            </div>
+          </div>
+        </div> : null}
         <div className="toolBar" style={{ paddingLeft: 0, paddingRight: 0, marginTop: '14px' }}>
           <label>Asset
             <select value={symbol} onChange={(e) => setSymbol(e.target.value)}>
@@ -1531,7 +1602,7 @@ function PortfolioLivePage(props:any) {
 }
 
 function IndexRebalanceExecutor(props:any) {
-  const { assets, positions, setDecisionLog, decisionLog } = props;
+  const { assets, positions, setDecisionLog, decisionLog, drafts, setDrafts } = props;
   const [mode, setMode] = useState<'Core'|'Momentum'|'ValueChain'>('Core');
   const [capital, setCapital] = useState(10000);
   const config = REBALANCE_BASKETS[mode];
@@ -1548,11 +1619,10 @@ function IndexRebalanceExecutor(props:any) {
   const totalTurnover = rows.reduce((sum, row) => sum + Math.abs(row.delta), 0);
   const largestDrift = rows.reduce((max, row) => Math.max(max, Math.abs(row.delta)), 0);
 
-  const logPlan = () => {
+  const createPlan = () => {
     const time = new Date().toISOString();
-    const entries = rows
-      .filter((row) => row.asset && Math.abs(row.delta) > 25)
-      .map((row) => ({
+    const actionable = rows.filter((row) => row.asset && row.asset.sodexSymbol && Math.abs(row.delta) > 25);
+    const entries = actionable.map((row) => ({
         id: `${time}-${row.symbol}-rebalance`,
         time,
         symbol: row.symbol,
@@ -1573,7 +1643,28 @@ function IndexRebalanceExecutor(props:any) {
         riskGate: ['Rebalance planner', 'Paper exposure drift'],
         outcome: `Rebalance ticket created for ${usd(Math.abs(row.delta))}`
       }));
+    const nextDrafts: ExecutionDraft[] = actionable.map((row) => {
+      const side = row.delta >= 0 ? 'BUY' as const : 'SELL' as const;
+      const qty = Math.abs(row.qty);
+      return {
+        id: `${time}-${row.symbol}-rebalance-draft`,
+        createdAt: time,
+        origin: 'rebalance',
+        symbol: row.symbol,
+        sodexSymbol: row.asset!.sodexSymbol!,
+        side,
+        qty,
+        notional: Math.abs(row.delta),
+        confidence: row.asset!.confidence,
+        mode: 'LIMIT',
+        regime: `${mode} rebalance`,
+        rationale: `${config.title} target ${Math.round(row.targetWeight * 100)}% with drift ${usd(row.delta)}. Use staged passive orders on SoDEX.`,
+        slices: buildDraftSlices(row.asset!, side, qty, 'LIMIT', 0.42, 'Balanced Tape'),
+        status: 'draft'
+      };
+    });
     if (entries.length) setDecisionLog([...entries, ...decisionLog].slice(0, 80));
+    if (nextDrafts.length) setDrafts([...nextDrafts, ...drafts].slice(0, 80));
   };
 
   return <div className="single">
@@ -1595,7 +1686,9 @@ function IndexRebalanceExecutor(props:any) {
         <label>Capital
           <input type="number" value={capital} onChange={(e)=>setCapital(Number(e.target.value))} />
         </label>
-        <button className="miniBtn" onClick={logPlan}>Write rebalance tickets to decision log</button>
+        <button className="miniBtn" onClick={createPlan}>Generate live SoDEX staged order plan</button>
+        <span className="miniBtn">{drafts.filter((row:ExecutionDraft)=>row.origin==='rebalance' && row.status==='draft').length} rebalance drafts</span>
+        <a className="miniBtn" href="/operator-lab">Open Operator Lab</a>
         <a className="miniBtn" href="/decision-log">Open Decision Log</a>
       </div>
       <table><thead><tr><th>Symbol</th><th>Target %</th><th>Target</th><th>Current</th><th>Delta</th><th>Qty</th><th>Action</th></tr></thead><tbody>
@@ -1614,7 +1707,7 @@ function IndexRebalanceExecutor(props:any) {
 }
 
 function NewsExecutionBotPage(props:any) {
-  const { assets, setDecisionLog, decisionLog } = props;
+  const { assets, setDecisionLog, decisionLog, drafts, setDrafts } = props;
   const [stories, setStories] = useState<LiveNewsItem[]>([]);
   const [macro, setMacro] = useState<MacroEvent[]>([]);
   const [loading, setLoading] = useState(false);
@@ -1644,12 +1737,13 @@ function NewsExecutionBotPage(props:any) {
   const createDecision = (asset: Asset) => {
     const lead = stories[0];
     const macroLead = macro[0];
+    const regime = deriveNewsRegime(stories, macro, asset);
     const time = new Date().toISOString();
     setDecisionLog([{
       id: `${time}-${asset.symbol}-news-bot`,
       time,
       symbol: asset.symbol,
-      side: asset.change24h >= 0 ? 'BUY' : 'HOLD',
+      side: regime.side === 'SELL' ? 'SELL' : 'BUY',
       mode: 'News-to-Execution Alert Bot',
       price: asset.price || 0,
       qty: 1,
@@ -1658,15 +1752,37 @@ function NewsExecutionBotPage(props:any) {
       topBid: null,
       topAsk: null,
       depthUsd: asset.volume24h || null,
-      signalReason: `SoSoValue headline pressure + momentum score ranked ${asset.symbol} near the top of the action queue.`,
+      signalReason: `SoSoValue headline pressure + ${regime.volatilityRegime} ranked ${asset.symbol} near the top of the action queue.`,
       newsTitle: lead?.title || '',
       newsLink: lead?.link || '',
       macroDate: macroLead?.date || '',
       macroEvents: macroLead?.events || [],
-      riskGate: ['Alert bot', 'Needs execution confirmation'],
+      riskGate: ['Alert bot', regime.volatilityRegime, ...regime.notes],
       outcome: 'Decision queued for execution review'
     }, ...decisionLog].slice(0, 80));
+    if (asset.sodexSymbol && asset.price) {
+      const qty = Number((Math.max(250, (asset.volume24h || 250000) * 0.00035) / asset.price).toFixed(4));
+      const draft: ExecutionDraft = {
+        id: `${time}-${asset.symbol}-news-draft`,
+        createdAt: time,
+        origin: 'news-bot',
+        symbol: asset.symbol,
+        sodexSymbol: asset.sodexSymbol,
+        side: regime.side === 'SELL' ? 'SELL' : 'BUY',
+        qty,
+        notional: Number((qty * asset.price).toFixed(2)),
+        confidence: asset.confidence,
+        mode: regime.mode,
+        regime: regime.volatilityRegime,
+        rationale: `${lead?.title || 'SoSoValue live tape'} | ${regime.notes.join(' ')}`,
+        slices: buildDraftSlices(asset, regime.side === 'SELL' ? 'SELL' : 'BUY', qty, regime.mode, regime.urgency, regime.volatilityRegime),
+        status: 'draft'
+      };
+      setDrafts([draft, ...drafts].slice(0, 80));
+    }
   };
+
+  const topRegime = ranked[0]?.asset ? deriveNewsRegime(stories, macro, ranked[0].asset) : null;
 
   return <div className="single">
     <section className="panel" style={{padding:'18px'}}>
@@ -1676,9 +1792,12 @@ function NewsExecutionBotPage(props:any) {
         <article><b>{stories.length}</b><p>Live SoSoValue stories scanned</p></article>
         <article><b>{macro.length}</b><p>Macro dates folded into ranking</p></article>
         <article><b>{ranked[0]?.asset.symbol || '—'}</b><p>Top execution candidate right now</p></article>
+        <article><b>{topRegime?.volatilityRegime || 'Balanced Tape'}</b><p>Current auto regime</p></article>
       </div>
       <div className="toolBar" style={{paddingLeft:0,paddingRight:0,marginTop:'14px'}}>
         <button className="miniBtn" onClick={load}>Refresh news queue</button>
+        <span className="miniBtn">{drafts.filter((row:ExecutionDraft)=>row.origin==='news-bot' && row.status==='draft').length} auto drafts</span>
+        <a className="miniBtn" href="/operator-lab">Open Operator Lab</a>
         <a className="miniBtn" href="/news-and-insights">Open full news feed</a>
         <a className="miniBtn" href="/decision-log">Open decision log</a>
       </div>
@@ -1687,14 +1806,107 @@ function NewsExecutionBotPage(props:any) {
           <article className="storyCard" key={asset.symbol}>
             <div className="storyMeta"><span>{asset.symbol}</span><em>Score {score.toFixed(2)}</em></div>
             <b>{asset.name} · {asset.signal} · {pct(asset.change24h)}</b>
-            <p>Ranked from SoSoValue hot news, macro calendar context, and current market momentum. This turns news into an execution shortlist instead of a passive reading panel.</p>
+            <p>{deriveNewsRegime(stories, macro, asset).notes.join(' ')}</p>
             <div className="launchCtas">
               <span className="miniBtn">{usd(asset.price)}</span>
               <span className="miniBtn">{asset.confidence}% confidence</span>
-              <button className="miniBtn" onClick={() => createDecision(asset)}>Queue decision</button>
+              <span className="miniBtn">{deriveNewsRegime(stories, macro, asset).volatilityRegime}</span>
+              <button className="miniBtn" onClick={() => createDecision(asset)}>Auto-create execution draft</button>
             </div>
           </article>
         ))}
+      </div>
+    </section>
+  </div>;
+}
+
+function OperatorLabPage(props:any) {
+  const { drafts, setDrafts, assets } = props;
+  const liveDrafts = drafts.filter((row:ExecutionDraft) => row.status !== 'archived');
+  const [focusId, setFocusId] = useState(liveDrafts[0]?.id || '');
+  const focus = liveDrafts.find((row:ExecutionDraft) => row.id === focusId) || liveDrafts[0] || null;
+  const [detail, setDetail] = useState<any>(null);
+
+  useEffect(() => {
+    if (!focus?.symbol) return;
+    let active = true;
+    fetch(`/api/market?symbol=${encodeURIComponent(focus.symbol)}`, { cache: 'no-store' })
+      .then((res) => res.json())
+      .then((json) => { if (active) setDetail(json.detail || null); })
+      .catch(() => { if (active) setDetail(null); });
+    return () => { active = false; };
+  }, [focus?.symbol]);
+
+  const totalNotional = liveDrafts.reduce((sum:number, row:ExecutionDraft) => sum + row.notional, 0);
+  const topBid = detail?.orderbook?.bids?.[0]?.[0] || null;
+  const topAsk = detail?.orderbook?.asks?.[0]?.[0] || null;
+  const spreadBps = detail?.spreadBps || null;
+  const focusAsset = assets.find((row:Asset) => row.symbol === focus?.symbol);
+
+  const archiveDraft = (id: string) => setDrafts(drafts.map((row:ExecutionDraft) => row.id === id ? { ...row, status: 'archived' } : row));
+  const reopenDraft = (id: string) => setDrafts(drafts.map((row:ExecutionDraft) => row.id === id ? { ...row, status: 'draft' } : row));
+
+  return <div className="single">
+    <section className="panel" style={{padding:'18px'}}>
+      <div className="panelTitle"><b>Operator Lab</b><a>Draft queue + SoDEX routing context</a></div>
+      <div className="featureGrid">
+        <article><b>{liveDrafts.length}</b><p>Execution drafts waiting in the queue</p></article>
+        <article><b>{usd(totalNotional)}</b><p>Total staged notional across all modules</p></article>
+        <article><b>{focus?.symbol || '—'}</b><p>Current live routing focus</p></article>
+        <article><b>{spreadBps !== null ? formatBp(spreadBps) : '—'}</b><p>Live SoDEX spread for focused draft</p></article>
+      </div>
+      <div className="contentGrid" style={{paddingTop:'14px'}}>
+        <div className="leftCol">
+          <section className="market panel">
+            <div className="panelTitle"><b>Draft Queue</b><a>{liveDrafts.length} active</a></div>
+            <table><thead><tr><th>Origin</th><th>Symbol</th><th>Side</th><th>Mode</th><th>Notional</th><th>Regime</th><th>Status</th></tr></thead><tbody>
+              {liveDrafts.length ? liveDrafts.map((row:ExecutionDraft)=><tr key={row.id} onClick={()=>setFocusId(row.id)}>
+                <td>{row.origin}</td>
+                <td>{row.symbol}</td>
+                <td className={row.side==='BUY'?'green':'red'}>{row.side}</td>
+                <td>{row.mode}</td>
+                <td>{usd(row.notional)}</td>
+                <td>{row.regime}</td>
+                <td>{row.status}</td>
+              </tr>) : <tr><td colSpan={7}>No execution drafts yet. Generate one from the rebalance or news bot modules.</td></tr>}
+            </tbody></table>
+          </section>
+        </div>
+        <aside className="rightCol">
+          <section className="panel" style={{padding:'16px'}}>
+            <div className="panelTitle"><b>Focused Draft</b><a>{focus?.origin || 'queue idle'}</a></div>
+            {focus ? <div className="storyList">
+              <article className="storyCard">
+                <div className="storyMeta"><span>{focus.symbol}</span><em>{focus.mode}</em></div>
+                <b>{focus.side} {focus.qty.toFixed(4)} · {usd(focus.notional)}</b>
+                <p>{focus.rationale}</p>
+              </article>
+              <article className="storyCard">
+                <b>Live SoDEX context</b>
+                <p>Top bid/ask: {topBid ? usd(topBid) : '—'} / {topAsk ? usd(topAsk) : '—'} · Spread: {spreadBps !== null ? formatBp(spreadBps) : '—'} · Price: {usd(focusAsset?.price || null)}</p>
+              </article>
+            </div> : <article className="storyCard"><b>No draft selected</b><p>Select a live draft from the queue.</p></article>}
+            <div className="toolBar" style={{paddingLeft:0,paddingRight:0,marginTop:'14px'}}>
+              {focus ? <button className="miniBtn" onClick={() => archiveDraft(focus.id)}>Archive draft</button> : null}
+              {focus?.status === 'queued' ? <button className="miniBtn" onClick={() => reopenDraft(focus.id)}>Re-open draft</button> : null}
+              <a className="miniBtn" href="/execution">Open Execution Desk</a>
+            </div>
+          </section>
+          <section className="panel" style={{padding:'16px'}}>
+            <div className="panelTitle"><b>Stage Plan</b><a>{focus?.slices?.length || 0} slices</a></div>
+            <div className="fillTable">
+              <div className="fillHeader"><span>Step</span><span>Price</span><span>Size</span><span>Notional</span></div>
+              {focus?.slices?.length ? focus.slices.map((slice) => (
+                <div className="fillRow" key={`${focus.id}-${slice.step}`}>
+                  <span>{slice.step} · {slice.kind}</span>
+                  <span>{usd(slice.price)}</span>
+                  <span>{slice.qty.toFixed(4)}</span>
+                  <span>{usd(slice.notional)}</span>
+                </div>
+              )) : <p className="riskNote">No staged slices for the focused draft yet.</p>}
+            </div>
+          </section>
+        </aside>
       </div>
     </section>
   </div>;
@@ -1717,6 +1929,7 @@ export default function Terminal({initialMenu='Dashboard'}:{initialMenu?:string}
   const [overview,setOverview]=useState<MarketOverview | null>(null);
   const [watchlist,setWatchlist]=useLocal<string[]>('sodex.watchlist',['BTC','ETH','SOSO']); const [positions,setPositions]=useLocal<PaperPosition[]>('sodex.paper',[]); const [alerts,setAlerts]=useLocal<AlertRule[]>('sodex.alerts',[]);
   const [decisionLog,setDecisionLog]=useLocal<DecisionLogEntry[]>('sodex.decision.log',[]);
+  const [drafts,setDrafts]=useLocal<ExecutionDraft[]>('sodex.execution.drafts',[]);
   const loadMarket=useCallback(async()=>{setLoading(true); try{const d=await fetch('/api/market',{cache:'no-store'}).then(r=>r.json()); const next=d.assets||[]; setAssets(next); setOverview(d.overview || null); setActive(prev=>next.find((a:Asset)=>a.symbol===prev?.symbol)||next[0]||null)}finally{setLoading(false)}},[]);
   useEffect(()=>{loadMarket(); const t=setInterval(loadMarket,60000); return()=>clearInterval(t)},[loadMarket]);
   const toggleWatch=(s:string)=>setWatchlist(watchlist.includes(s)?watchlist.filter(x=>x!==s):[...watchlist,s]);
@@ -1725,7 +1938,7 @@ export default function Terminal({initialMenu='Dashboard'}:{initialMenu?:string}
   const connect=async()=>{setWalletError(''); const eth=window.ethereum; if(!eth){setWalletError('No browser wallet detected. Install MetaMask or open in a Web3 browser.'); return} try{const acc=await eth.request({method:'eth_requestAccounts'}); if(acc?.[0]) await readWallet(acc[0])}catch(e:any){setWalletError(e?.message||'Wallet connection rejected.')}};
   const disconnect=()=>{setWallet(null); localStorage.removeItem('sodex.wallet.connected')};
   useEffect(()=>{const eth=window.ethereum; if(!eth)return; if(localStorage.getItem('sodex.wallet.connected')) eth.request({method:'eth_accounts'}).then((a:string[])=>a?.[0]&&readWallet(a[0])).catch(()=>{}); const onAcc=(a:string[])=>a?.[0]?readWallet(a[0]):disconnect(); const onChain=()=>wallet?.address&&readWallet(wallet.address); eth.on?.('accountsChanged',onAcc); eth.on?.('chainChanged',onChain); return()=>{eth.removeListener?.('accountsChanged',onAcc); eth.removeListener?.('chainChanged',onChain)}},[readWallet,wallet?.address]);
-  const main=active||assets[0]; const marketCap=assets.reduce((s,a)=>s+(a.marketCap||0),0), volume=assets.reduce((s,a)=>s+(a.volume24h||0),0); const props={assets,main,onPick:setActive,wallet,watchlist,toggleWatch,positions,setPositions,alerts,setAlerts,addTrade,overview,decisionLog,setDecisionLog};
-  const page = activeMenu==='Launch'||activeMenu==='Dashboard'?<LaunchPanel {...props}/>:activeMenu==='Judges'?<JudgesPanel {...props}/>:activeMenu==='Execution'?<ExecutionDesk {...props}/>:activeMenu==='Decision Log'?<DecisionLogPage />:activeMenu==='Markets'?<Markets {...props}/>:activeMenu==='Watchlist'?<Watchlist {...props}/>:activeMenu==='Alpha Signals'?<AlphaSignals {...props}/>:activeMenu==='Screener'?<Screener {...props}/>:activeMenu==='Heatmap'?<Heatmap {...props}/>:activeMenu==='Portfolio'?<PortfolioPage {...props}/>:activeMenu==='Portfolio Live'?<PortfolioLivePage {...props}/>:activeMenu==='Paper Trading'?<PaperTrading {...props}/>:activeMenu==='Alerts'?<NewsExecutionBotPage {...props}/>:activeMenu==='Diag'?<DiagPanel {...props}/>:activeMenu==='AI Research'?<ResearchPanel {...props}/>:activeMenu==='News & Insights'?<NewsFeedPanel />:activeMenu==='SoSoValue Indexes'?<IndexRebalanceExecutor {...props}/>:['On-Chain','Leaderboard','Settings'].includes(activeMenu)?<SimpleModule title={activeMenu} assets={assets}/>:main?<LaunchPanel {...props}/>:null;
+  const main=active||assets[0]; const marketCap=assets.reduce((s,a)=>s+(a.marketCap||0),0), volume=assets.reduce((s,a)=>s+(a.volume24h||0),0); const props={assets,main,onPick:setActive,wallet,watchlist,toggleWatch,positions,setPositions,alerts,setAlerts,addTrade,overview,decisionLog,setDecisionLog,drafts,setDrafts};
+  const page = activeMenu==='Launch'||activeMenu==='Dashboard'?<LaunchPanel {...props}/>:activeMenu==='Judges'?<JudgesPanel {...props}/>:activeMenu==='Execution'?<ExecutionDesk {...props}/>:activeMenu==='Operator Lab'?<OperatorLabPage {...props}/>:activeMenu==='Decision Log'?<DecisionLogPage />:activeMenu==='Markets'?<Markets {...props}/>:activeMenu==='Watchlist'?<Watchlist {...props}/>:activeMenu==='Alpha Signals'?<AlphaSignals {...props}/>:activeMenu==='Screener'?<Screener {...props}/>:activeMenu==='Heatmap'?<Heatmap {...props}/>:activeMenu==='Portfolio'?<PortfolioPage {...props}/>:activeMenu==='Portfolio Live'?<PortfolioLivePage {...props}/>:activeMenu==='Paper Trading'?<PaperTrading {...props}/>:activeMenu==='Alerts'?<NewsExecutionBotPage {...props}/>:activeMenu==='Diag'?<DiagPanel {...props}/>:activeMenu==='AI Research'?<ResearchPanel {...props}/>:activeMenu==='News & Insights'?<NewsFeedPanel />:activeMenu==='SoSoValue Indexes'?<IndexRebalanceExecutor {...props}/>:['On-Chain','Leaderboard','Settings'].includes(activeMenu)?<SimpleModule title={activeMenu} assets={assets}/>:main?<LaunchPanel {...props}/>:null;
   return <main className="app"><aside className="sidebar"><div className="logo brandLogo"><img src="/sodex-logo.jpg" alt="SoDEX logo"/><p><b>SoDEX</b><span>ALPHA TERMINAL</span></p></div><nav>{nav.map((n,i)=><a key={n} href={pathOf(n)} onClick={(e)=>{e.preventDefault(); window.history.pushState(null,'',pathOf(n)); setActiveMenu(n)}} className={activeMenu===n?'active':''}><span>{navIcons[i]}</span>{n}{n==='Alpha Signals'&&<em>LIVE</em>}</a>)}</nav><div className="community"><small>OFFICIAL & COMMUNITY</small>{official.slice(0,4).map(([l,h])=><a key={l} href={h} target="_blank">{l}<span>↗</span></a>)}</div></aside><section className="desk"><header className="playerBar compactBar"><div className="theme launchTheme"><div className="disc">◎</div><p><b>SoSoValue Launch Rail</b><span>Research, execution, diagnostics in one desk</span></p></div><div className="actions"><button className="bell" onClick={loadMarket}>{loading?'↻':'⟳'}</button>{wallet?<button onClick={disconnect} className="wallet">{short(wallet.address)} · Disconnect</button>:<button onClick={connect} className="wallet">Connect Wallet</button>}<button className="sun">✦</button></div></header>{walletError&&<div className="walletError">{walletError}</div>}<div className="ticker">{assets.map(a=><button key={a.symbol} onClick={()=>setActive(a)}><b>{a.symbol}</b><span>{usd(a.price)}</span><em className={a.change24h>=0?'green':'red'}>{pct(a.change24h)}</em></button>)}<button><span>Market Cap</span><b>{usd(overview?.totalMarketCap ?? marketCap)}</b><em>{overview?.leaders?.[0] || 'live'}</em></button><button><span>24H Vol</span><b>{usd(overview?.totalVolume24h ?? volume)}</b><em>{overview?.breadthPct ? `${Math.round(overview.breadthPct)}% green` : 'live'}</em></button><button><span>BTC.D</span><b>{overview?.btcDominance ? `${overview.btcDominance.toFixed(2)}%` : '—'}</b><em>{overview?.leaders?.slice(0,2).join(' · ') || 'SoSoValue'}</em></button></div>{page}</section></main>
 }

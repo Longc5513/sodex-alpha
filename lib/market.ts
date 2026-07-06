@@ -55,16 +55,16 @@ export type MarketDetail = {
 };
 
 const WATCHLIST = [
-  { symbol: 'BTC', name: 'Bitcoin', pair: 'BTC / USDC', sodex: 'vBTC_vUSDC', category: 'Crypto Asset', icon: '₿', logo: 'https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/128/color/btc.png' },
-  { symbol: 'ETH', name: 'Ethereum', pair: 'ETH / USDC', sodex: 'vETH_vUSDC', category: 'Crypto Asset', icon: '◆', logo: 'https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/128/color/eth.png' },
-  { symbol: 'SOSO', name: 'SoSoValue', pair: 'SOSO / USDC', sodex: 'SOSO_USDC', category: 'ValueChain Asset', icon: 'S', logo: 'https://sosovalue.com/favicon.ico' },
-  { symbol: 'SOL', name: 'Solana', pair: 'SOL / USDC', sodex: 'vSOL_vUSDC', category: 'Crypto Asset', icon: '◎', logo: 'https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/128/color/sol.png' },
-  { symbol: 'LINK', name: 'Chainlink', pair: 'LINK / USDC', sodex: 'vLINK_vUSDC', category: 'Crypto Asset', icon: '⬡', logo: 'https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/128/color/link.png' }
+  { symbol: 'BTC', name: 'Bitcoin', pair: 'BTC / USDC', sodex: 'vBTC_vUSDC', category: 'Crypto Asset', icon: '₿', logo: '/tokens/btc.svg' },
+  { symbol: 'ETH', name: 'Ethereum', pair: 'ETH / USDC', sodex: 'vETH_vUSDC', category: 'Crypto Asset', icon: '◆', logo: '/tokens/eth.svg' },
+  { symbol: 'SOSO', name: 'SoSoValue', pair: 'SOSO / USDC', sodex: 'SOSO_USDC', category: 'ValueChain Asset', icon: 'S', logo: '/tokens/soso.svg' },
+  { symbol: 'SOL', name: 'Solana', pair: 'SOL / USDC', sodex: 'vSOL_vUSDC', category: 'Crypto Asset', icon: '◎', logo: '/tokens/sol.svg' },
+  { symbol: 'LINK', name: 'Chainlink', pair: 'LINK / USDC', sodex: 'vLINK_vUSDC', category: 'Crypto Asset', icon: '⬡', logo: '/tokens/link.svg' }
 ] as const;
 
 const INDEXES = [
-  { symbol: 'MAGI7', name: 'MAGI7.ssi Index', pair: 'ssiMAG7', sosoIndex: 'ssiMAG7', category: 'SSI Index', icon: 'M', logo: 'https://sodex.com/favicon.ico' },
-  { symbol: 'USSI', name: 'USSI Treasury Index', pair: 'ssiRWA', sosoIndex: 'ssiRWA', category: 'SSI Index', icon: 'U', logo: 'https://sodex.com/favicon.ico' }
+  { symbol: 'MAGI7', name: 'MAGI7.ssi Index', pair: 'ssiMAG7', sosoIndex: 'ssiMAG7', category: 'SSI Index', icon: 'M', logo: '/tokens/magi7.svg' },
+  { symbol: 'USSI', name: 'USSI Treasury Index', pair: 'ssiRWA', sosoIndex: 'ssiRWA', category: 'SSI Index', icon: 'U', logo: '/tokens/ussi.svg' }
 ] as const;
 
 type AnyRecord = Record<string, any>;
