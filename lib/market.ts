@@ -57,7 +57,7 @@ export type MarketDetail = {
 const WATCHLIST = [
   { symbol: 'BTC', name: 'Bitcoin', pair: 'BTC / USDC', sodex: 'vBTC_vUSDC', category: 'Crypto Asset', icon: '₿', logo: '/tokens/btc.svg' },
   { symbol: 'ETH', name: 'Ethereum', pair: 'ETH / USDC', sodex: 'vETH_vUSDC', category: 'Crypto Asset', icon: '◆', logo: '/tokens/eth.svg' },
-  { symbol: 'SOSO', name: 'SoSoValue', pair: 'SOSO / USDC', sodex: 'SOSO_USDC', category: 'ValueChain Asset', icon: 'S', logo: '/tokens/soso.svg' },
+  { symbol: 'SOSO', name: 'SoSoValue', pair: 'SOSO / USDC', sodex: 'WSOSO_vUSDC', category: 'ValueChain Asset', icon: 'S', logo: '/tokens/soso.svg' },
   { symbol: 'SOL', name: 'Solana', pair: 'SOL / USDC', sodex: 'vSOL_vUSDC', category: 'Crypto Asset', icon: '◎', logo: '/tokens/sol.svg' },
   { symbol: 'LINK', name: 'Chainlink', pair: 'LINK / USDC', sodex: 'vLINK_vUSDC', category: 'Crypto Asset', icon: '⬡', logo: '/tokens/link.svg' }
 ] as const;
@@ -473,10 +473,12 @@ export async function getMarket(): Promise<{ assets: Asset[]; overview: MarketOv
   }));
 
   const curatedSymbols = new Set<string>([...WATCHLIST.map((row) => row.symbol), ...INDEXES.map((row) => row.symbol)]);
+  const curatedVenueSymbols = new Set<string>([...WATCHLIST.map((row) => normalizeSymbol(row.sodex)), ...INDEXES.map((row) => normalizeSymbol(row.sodex))]);
   const dynamicUniverse = tickers
     .map((row) => dynamicAssetFromTicker(row))
     .filter((row): row is Asset => Boolean(row))
     .filter((row) => !curatedSymbols.has(row.symbol))
+    .filter((row) => !curatedVenueSymbols.has(normalizeSymbol(row.sodexSymbol || '')))
     .sort((a, b) => (b.volume24h || 0) - (a.volume24h || 0))
     .slice(0, 180);
 
