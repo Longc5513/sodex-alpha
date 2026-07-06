@@ -99,3 +99,5 @@
 @keyframes orbitFloat{0%{transform:translateY(0) rotate(0deg)}100%{transform:translateY(-10px) rotate(4deg)}}
 @media(max-width:1200px){.executionGrid{grid-template-columns:1fr}.riskMeter{grid-template-columns:1fr}.riskRing{margin:auto}.flowTimeline{grid-template-columns:1fr 1fr}.judgeHeroCard{flex-direction:column}}
 @media(max-width:760px){.depthRow{grid-template-columns:76px minmax(0,1fr) 76px 48px}.launchRibbon{font-size:10px;letter-spacing:.08em}.launchCtas{gap:8px}.judgeHeroCard h3{font-size:20px}.fillHeader,.fillRow{grid-template-columns:56px minmax(0,1fr) 1fr 1fr}.pnlStats{grid-template-columns:1fr}.heroVisual{min-width:0;margin-top:20px}.heroVisualFrame{width:100%;max-width:320px}.compactBar{grid-template-columns:1fr}.launchTheme{margin-bottom:10px}}
+.coinIconImg,.assetIconImg{width:24px;height:24px;border-radius:50%;display:block;object-fit:cover;background:#101725;border:1px solid rgba(255,255,255,.08);box-shadow:0 0 14px rgba(255,148,81,.16)}
+.assetIcon{overflow:hidden}

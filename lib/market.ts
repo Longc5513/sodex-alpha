@@ -18,6 +18,7 @@ export type Asset = {
   pair: string;
   sodexSymbol?: string;
   sosoCurrencyId?: string;
+  logo?: string;
   price: number | null;
   change24h: number;
   change7d: number;
@@ -54,16 +55,16 @@ export type MarketDetail = {
 };
 
 const WATCHLIST = [
-  { symbol: 'BTC', name: 'Bitcoin', pair: 'BTC / USDC', sodex: 'vBTC_vUSDC', category: 'Crypto Asset', icon: '₿' },
-  { symbol: 'ETH', name: 'Ethereum', pair: 'ETH / USDC', sodex: 'vETH_vUSDC', category: 'Crypto Asset', icon: '◆' },
-  { symbol: 'SOSO', name: 'SoSoValue', pair: 'SOSO / USDC', sodex: 'SOSO_USDC', category: 'ValueChain Asset', icon: 'S' },
-  { symbol: 'SOL', name: 'Solana', pair: 'SOL / USDC', sodex: 'vSOL_vUSDC', category: 'Crypto Asset', icon: '◎' },
-  { symbol: 'LINK', name: 'Chainlink', pair: 'LINK / USDC', sodex: 'vLINK_vUSDC', category: 'Crypto Asset', icon: '⬡' }
+  { symbol: 'BTC', name: 'Bitcoin', pair: 'BTC / USDC', sodex: 'vBTC_vUSDC', category: 'Crypto Asset', icon: '₿', logo: 'https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/128/color/btc.png' },
+  { symbol: 'ETH', name: 'Ethereum', pair: 'ETH / USDC', sodex: 'vETH_vUSDC', category: 'Crypto Asset', icon: '◆', logo: 'https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/128/color/eth.png' },
+  { symbol: 'SOSO', name: 'SoSoValue', pair: 'SOSO / USDC', sodex: 'SOSO_USDC', category: 'ValueChain Asset', icon: 'S', logo: 'https://sosovalue.com/favicon.ico' },
+  { symbol: 'SOL', name: 'Solana', pair: 'SOL / USDC', sodex: 'vSOL_vUSDC', category: 'Crypto Asset', icon: '◎', logo: 'https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/128/color/sol.png' },
+  { symbol: 'LINK', name: 'Chainlink', pair: 'LINK / USDC', sodex: 'vLINK_vUSDC', category: 'Crypto Asset', icon: '⬡', logo: 'https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/128/color/link.png' }
 ] as const;
 
 const INDEXES = [
-  { symbol: 'MAGI7', name: 'MAGI7.ssi Index', pair: 'ssiMAG7', sosoIndex: 'ssiMAG7', category: 'SSI Index', icon: 'M' },
-  { symbol: 'USSI', name: 'USSI Treasury Index', pair: 'ssiRWA', sosoIndex: 'ssiRWA', category: 'SSI Index', icon: 'U' }
+  { symbol: 'MAGI7', name: 'MAGI7.ssi Index', pair: 'ssiMAG7', sosoIndex: 'ssiMAG7', category: 'SSI Index', icon: 'M', logo: 'https://sodex.com/favicon.ico' },
+  { symbol: 'USSI', name: 'USSI Treasury Index', pair: 'ssiRWA', sosoIndex: 'ssiRWA', category: 'SSI Index', icon: 'U', logo: 'https://sodex.com/favicon.ico' }
 ] as const;
 
 type AnyRecord = Record<string, any>;
@@ -231,6 +232,7 @@ function assetFromTicker(item: (typeof WATCHLIST)[number], tickerRow: AnyRecord 
     pair: item.pair,
     sodexSymbol: item.sodex,
     sosoCurrencyId,
+    logo: item.logo,
     price,
     change24h,
     change7d,
@@ -248,6 +250,7 @@ function indexFromSnapshot(item: (typeof INDEXES)[number], snapshot: AnyRecord |
     symbol: item.symbol,
     name: item.name,
     pair: item.pair,
+    logo: item.logo,
     price: asNumber(snapshot?.price),
     change24h: (asNumber(snapshot?.change_pct_24h) || 0) * 100,
     change7d: (asNumber(snapshot?.roi_7d) || 0) * 100,

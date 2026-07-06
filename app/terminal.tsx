@@ -9,7 +9,7 @@ type Asset = {
   symbol: string; name: string; pair: string; price: number | null; change24h: number; change7d: number;
   volume24h: number | null; marketCap: number | null; signal: Signal; confidence: number;
   entry: number | null; stop: number | null; take: number | null; spark: number[]; chart: CandlePoint[]; category: string; icon: string;
-  sodexSymbol?: string; sosoCurrencyId?: string;
+  sodexSymbol?: string; sosoCurrencyId?: string; logo?: string;
 };
 type MarketOverview = { totalMarketCap: number | null; totalVolume24h: number | null; btcDominance: number | null; breadthPct: number | null; leaders: string[] };
 type WalletState = { address: string; chainId: string; balance: string } | null;
@@ -46,7 +46,14 @@ function Spark({ data, height=36 }: { data:number[]; height?:number }){
   return <svg className="spark" style={{height}} viewBox={`0 0 100 ${height}`} preserveAspectRatio="none"><polyline points={points}/></svg>;
 }
 function MiniStat({label,value}:{label:string;value:string}){return <i><b>{value}</b><small>{label}</small></i>}
-function Coin({a}:{a:Asset}){return <span className="coin"><i>{a.icon}</i><b>{a.symbol}<small>{a.name}</small></b></span>}
+function TokenBadge({a,small}:{a:Asset;small?:boolean}){
+  const [failed,setFailed]=useState(false);
+  if(a.logo && !failed){
+    return <img className={small?'assetIconImg':'coinIconImg'} src={a.logo} alt={`${a.symbol} logo`} onError={()=>setFailed(true)} />
+  }
+  return <i>{a.icon}</i>;
+}
+function Coin({a}:{a:Asset}){return <span className="coin"><TokenBadge a={a}/><b>{a.symbol}<small>{a.name}</small></b></span>}
 
 function MarketTable({assets,onPick,watchlist,toggleWatch}:{assets:Asset[];onPick:(a:Asset)=>void;watchlist:string[];toggleWatch:(s:string)=>void}){
   return <section className="market panel"><div className="panelTitle"><b>Market Overview</b><div><button className="tabOn">Top Coins</button><button>SoSo Indexes</button><button>MAGI7</button><button>Trending</button></div></div><table><thead><tr><th>#</th><th>Coin</th><th>Price</th><th>24H %</th><th>7D %</th><th>Market Cap</th><th>24H Volume</th><th>Chart</th><th>Watch</th></tr></thead><tbody>{assets.slice(0,8).map((a,i)=><tr key={a.symbol} onClick={()=>onPick(a)}><td>{i+1}</td><td><Coin a={a}/></td><td>{usd(a.price)}</td><td className={a.change24h>=0?'green':'red'}>{pct(a.change24h)}</td><td className={a.change7d>=0?'green':'red'}>{pct(a.change7d)}</td><td>{usd(a.marketCap)}</td><td>{usd(a.volume24h)}</td><td><Spark data={a.spark}/></td><td><button className="miniBtn" onClick={(e)=>{e.stopPropagation();toggleWatch(a.symbol)}}>{watchlist.includes(a.symbol)?'★':'☆'}</button></td></tr>)}</tbody></table></section>
@@ -69,7 +76,7 @@ function Candles({active}:{active:Asset}){
   const priceY=(value:number)=>((maxHigh-value)/span)*(chartHeight-10)+5;
   return <section className="chartCard panel"><div className="chartTitle"><div><b>{active.pair}</b><span>{active.name} Price</span></div><div className="tabs"><button>1H</button><button>4H</button><button>1D</button><button className="on">1W</button><button>1M</button><button>TradingView⌄</button></div></div><div className="chartPrice"><b>{usd(active.price)}</b><em className={active.change24h>=0?'green':'red'}>{pct(active.change24h)} (24H)</em></div><div className="canvas"><span className="lastPrice">{usd(active.price)}</span><svg viewBox={`0 0 ${width} ${chartHeight+volumeHeight}`} preserveAspectRatio="none" className="chartSvg">{candles.map((c,i)=>{const x=i*candleSlot+candleSlot/2; const up=c.close>=c.open; const yHigh=priceY(c.high); const yLow=priceY(c.low); const yOpen=priceY(c.open); const yClose=priceY(c.close); const bodyY=Math.min(yOpen,yClose); const bodyH=Math.max(1.2,Math.abs(yClose-yOpen)); const volumeY=chartHeight+volumeHeight-c.volume; return <g key={i} className={up?'candleUp':'candleDown'}><line x1={x} x2={x} y1={yHigh} y2={yLow} className="wick"/><rect x={x-bodyWidth/2} y={bodyY} width={bodyWidth} height={bodyH} rx={0.4} className="body"/><rect x={x-bodyWidth/2} y={volumeY} width={bodyWidth} height={c.volume} rx={0.25} className="volumeBar"/></g>})}</svg></div></section>
 }
-function Signals({assets,trade}:{assets:Asset[];trade?:(a:Asset)=>void}){return <section className="signals panel"><div className="panelTitle"><b>AI Alpha Signals</b><a>Real workflow</a></div>{assets.slice(0,6).map(a=><div className="sigRow" key={a.symbol}><span className="assetIcon">{a.icon}</span><p><b>{a.symbol}</b><small>{a.name}</small></p><em className={a.signal.toLowerCase()}>{a.signal}</em><dl><dt>Entry</dt><dd>{usd(a.entry)}</dd></dl><dl><dt>TP</dt><dd>{usd(a.take)}</dd></dl><dl><dt>SL</dt><dd>{usd(a.stop)}</dd></dl><strong>{a.confidence}%</strong>{trade&&<button className="miniBtn" onClick={()=>trade(a)}>Route</button>}</div>)}</section>}
+function Signals({assets,trade}:{assets:Asset[];trade?:(a:Asset)=>void}){return <section className="signals panel"><div className="panelTitle"><b>AI Alpha Signals</b><a>Real workflow</a></div>{assets.slice(0,6).map(a=><div className="sigRow" key={a.symbol}><span className="assetIcon"><TokenBadge a={a} small/></span><p><b>{a.symbol}</b><small>{a.name}</small></p><em className={a.signal.toLowerCase()}>{a.signal}</em><dl><dt>Entry</dt><dd>{usd(a.entry)}</dd></dl><dl><dt>TP</dt><dd>{usd(a.take)}</dd></dl><dl><dt>SL</dt><dd>{usd(a.stop)}</dd></dl><strong>{a.confidence}%</strong>{trade&&<button className="miniBtn" onClick={()=>trade(a)}>Route</button>}</div>)}</section>}
 function PortfolioPanel({assets,wallet,positions}:{assets:Asset[];wallet:WalletState;positions:PaperPosition[]}){const virtual=positions.reduce((s,p)=>{const now=assets.find(a=>a.symbol===p.symbol)?.price||p.entry; return s+(now-p.entry)*p.qty*(p.side==='BUY'?1:-1)},0); return <section className="portfolio panel"><div className="panelTitle"><b>Portfolio <span>{wallet?chainName(wallet.chainId):'Paper Trading'}</span></b><a>{positions.length} paper orders</a></div><h3>{wallet?`${Number(wallet.balance||0).toFixed(4)} ETH`:'$100,000.00'}<em className={virtual>=0?'green':'red'}>{virtual>=0?'+':''}{usd(virtual)}</em></h3><table><tbody>{positions.slice(-5).reverse().map((p,i)=><tr key={p.time+i}><td>{p.symbol}</td><td>{p.side}</td><td>{p.qty}</td><td>{usd(p.entry)}</td></tr>)}{positions.length===0&&assets.slice(0,4).map((a,i)=><tr key={a.symbol}><td>{a.symbol}</td><td>{i?'Watch':'Core'}</td><td>{usd(a.price)}</td><td className={a.change24h>=0?'green':'red'}>{pct(a.change24h)}</td></tr>)}</tbody></table></section>}
 
 function normalizeCurve(points: number[]) {
@@ -197,14 +204,36 @@ function pickBotSide(asset: Asset, mode: 'Trend' | 'Research' | 'Mean Reversion'
   return asset.change24h >= 0 ? 'BUY' : 'SELL';
 }
 
+const REBALANCE_BASKETS: Record<'Core'|'Momentum'|'ValueChain', { symbols: string[]; weights: number[]; title: string; note: string }> = {
+  Core: { symbols: ['BTC', 'ETH', 'SOSO'], weights: [0.46, 0.34, 0.20], title: 'Core launch basket', note: 'BTC and ETH carry the beta while SOSO adds the protocol flywheel.' },
+  Momentum: { symbols: ['SOL', 'LINK', 'BTC'], weights: [0.40, 0.35, 0.25], title: 'Momentum basket', note: 'Momentum tilts toward higher beta and stronger 24H trend confirmation.' },
+  ValueChain: { symbols: ['SOSO', 'ETH', 'LINK'], weights: [0.50, 0.25, 0.25], title: 'ValueChain basket', note: 'Designed for the SoSoValue narrative and on-chain tooling angle.' }
+};
+
+function buildPaperExposure(assets: Asset[], positions: PaperPosition[]) {
+  const map = new Map<string, number>();
+  for (const position of positions) {
+    const asset = assets.find((row) => row.symbol === position.symbol);
+    const mark = asset?.price || position.entry || 0;
+    const signedQty = position.side === 'BUY' ? position.qty : -position.qty;
+    map.set(position.symbol, (map.get(position.symbol) || 0) + signedQty * mark);
+  }
+  return map;
+}
+
+function scoreNewsImpact(asset: Asset, stories: LiveNewsItem[], macro: MacroEvent[]) {
+  const corpus = `${stories.slice(0, 8).map((row) => `${row.title} ${row.summary} ${row.tags?.join(' ') || ''}`).join(' ')} ${macro.slice(0, 3).map((row) => row.events.join(' ')).join(' ')}`.toLowerCase();
+  const symbol = asset.symbol.toLowerCase();
+  const name = asset.name.toLowerCase();
+  const mentions = [symbol, name].reduce((sum, token) => sum + (corpus.includes(token) ? 1 : 0), 0);
+  const momentum = Math.max(-4, Math.min(8, asset.change24h * 1.6 + asset.change7d * 0.3));
+  const confidence = asset.confidence / 18;
+  return mentions * 12 + momentum + confidence;
+}
+
 function BasketBacktest({assets}:{assets:Asset[]}) {
   const [mode, setMode] = useState<'Core'|'Momentum'|'ValueChain'>('Core');
-  const baskets: Record<'Core'|'Momentum'|'ValueChain', { symbols: string[]; weights: number[]; title: string; note: string }> = {
-    Core: { symbols: ['BTC', 'ETH', 'SOSO'], weights: [0.46, 0.34, 0.20], title: 'Core launch basket', note: 'BTC and ETH carry the beta while SOSO adds the protocol flywheel.' },
-    Momentum: { symbols: ['SOL', 'LINK', 'BTC'], weights: [0.40, 0.35, 0.25], title: 'Momentum basket', note: 'Momentum tilts toward higher beta and stronger 24H trend confirmation.' },
-    ValueChain: { symbols: ['SOSO', 'ETH', 'LINK'], weights: [0.50, 0.25, 0.25], title: 'ValueChain basket', note: 'Designed for the SoSoValue narrative and on-chain tooling angle.' }
-  };
-  const config = baskets[mode];
+  const config = REBALANCE_BASKETS[mode];
   const selected = config.symbols.map((symbol) => assets.find((asset) => asset.symbol === symbol)).filter(Boolean) as Asset[];
   const weights = selected.length
     ? config.weights.slice(0, selected.length)
@@ -255,7 +284,7 @@ function LaunchPanel(props:any){
   const {assets, main, onPick, wallet, watchlist, toggleWatch, positions, addTrade, overview}=props;
   const focus = main || assets[0] || null;
   const indexRail = assets.find((asset:Asset)=>asset.symbol==='MAGI7');
-  return <><section className="topGrid"><div className="hero panel"><div><div className="launchRibbon">HACKATHON READY · SoSoValue x SoDEX · One operator launch desk</div><h1>SoDEX <span>Alpha Launch</span></h1><p>One-person on-chain finance business built on SoSoValue research, SoDEX market data, and fast paper execution.</p><div className="heroStats"><MiniStat label="Research" value="Live"/><MiniStat label="Monitoring" value="24/7"/><MiniStat label="Modules" value="Launch"/><MiniStat label="Wallet" value={wallet?'ON':'READY'}/></div><div className="launchCtas"><a className="miniBtn" href="/execution">Open Execution Desk</a><a className="miniBtn" href="/diag">Run Live Checks</a><a className="miniBtn" href={SOSOVALUE_CONSOLE_URL} target="_blank" rel="noreferrer">SoSoValue Console</a></div></div><div className="heroVisual"><div className="heroVisualFrame"><div className="heroBadge">SoSoValue intelligence</div><div className="heroCoin">SOSO</div><div className="heroGrid"><span>ETF flows</span><span>Macro</span><span>News</span><span>SSI</span></div><div className="heroBeam"/><div className="heroCard heroCardMain"><b>Live research rail</b><small>API-powered launch stack</small></div><div className="heroCard heroCardAlt"><b>ValueChain</b><small>Execution ready</small></div></div></div></div><div className="overview panel"><div className="panelTitle"><b>Market Overview</b><a>Live</a></div><div className="gauge"><div><b>{overview?.breadthPct?Math.round(overview.breadthPct):0}</b><span>Breadth</span></div></div><ul><li><span>BTC Dominance</span><b>{overview?.btcDominance?.toFixed(2) || '—'}%</b><em className="green">{overview?.leaders?.join(' · ') || 'Live leaders'}</em></li><li><span>Total Market Cap</span><b>{usd(overview?.totalMarketCap ?? null)}</b><em>{overview?.totalMarketCap?'SoSoValue':'N/A'}</em></li><li><span>24H Volume</span><b>{usd(overview?.totalVolume24h ?? null)}</b><em>{overview?.totalVolume24h?'SoDEX':'N/A'}</em></li></ul></div></section><section className="contentGrid"><div className="leftCol"><MarketTable assets={assets} onPick={onPick} watchlist={watchlist} toggleWatch={toggleWatch}/>{focus?<Candles active={focus}/>:<section className="panel" style={{padding:'18px'}}><div className="panelTitle"><b>Chart loading</b><a>Waiting for market data</a></div><p style={{color:'#aebacc'}}>Fetching SoDEX rows now. The launch chart will appear as soon as the live assets land.</p></section>}</div><aside className="rightCol"><Signals assets={assets}/><PortfolioPanel assets={assets} wallet={wallet} positions={positions}/><section className="index panel"><div className="panelTitle"><b>SoSoValue Index Stack</b><a>Research rail</a></div><h3>{indexRail?.pair || 'SSI / MAGI7'} <em className={indexRail?.change24h && indexRail.change24h>=0?'green':'red'}>{indexRail?.change24h ? pct(indexRail.change24h) : 'live'}</em></h3>{indexRail?.spark?.length?<Spark data={indexRail.spark} height={92}/>:<p style={{color:'#9cabbe'}}>Index stream unavailable</p>}</section></aside></section><section className="single"><div className="featureGrid"><article><b>Live feed</b><p>SoDEX market data keeps the watchlist, signals, and order routing honest.</p></article><article><b>Research stack</b><p>SoSoValue console links sit beside the terminal so the product story feels official.</p></article><article><b>Execution path</b><p>Paper trading and browser wallet flows prove the path from idea to action.</p></article></div><BasketBacktest assets={assets}/></section></>
+  return <><section className="topGrid"><div className="hero panel"><div><div className="launchRibbon">HACKATHON READY · SoSoValue x SoDEX · One operator launch desk</div><h1>SoDEX <span>Alpha Launch</span></h1><p>One-person on-chain finance business built on SoSoValue research, SoDEX market data, and fast paper execution.</p><div className="heroStats"><MiniStat label="Research" value="Live"/><MiniStat label="Monitoring" value="24/7"/><MiniStat label="Modules" value="Launch"/><MiniStat label="Wallet" value={wallet?'ON':'READY'}/></div><div className="launchCtas"><a className="miniBtn" href="/execution">Open Execution Desk</a><a className="miniBtn" href="/diag">Run Live Checks</a><a className="miniBtn" href={SOSOVALUE_CONSOLE_URL} target="_blank" rel="noreferrer">SoSoValue Console</a></div></div><div className="heroVisual"><div className="heroVisualFrame"><div className="heroBadge">SoSoValue intelligence</div><div className="heroCoin">SOSO</div><div className="heroGrid"><span>ETF flows</span><span>Macro</span><span>News</span><span>SSI</span></div><div className="heroBeam"/><div className="heroCard heroCardMain"><b>Live research rail</b><small>API-powered launch stack</small></div><div className="heroCard heroCardAlt"><b>ValueChain</b><small>Execution ready</small></div></div></div></div><div className="overview panel"><div className="panelTitle"><b>Market Overview</b><a>Live</a></div><div className="gauge"><div><b>{overview?.breadthPct?Math.round(overview.breadthPct):0}</b><span>Breadth</span></div></div><ul><li><span>BTC Dominance</span><b>{overview?.btcDominance?.toFixed(2) || '—'}%</b><em className="green">{overview?.leaders?.join(' · ') || 'Live leaders'}</em></li><li><span>Total Market Cap</span><b>{usd(overview?.totalMarketCap ?? null)}</b><em>{overview?.totalMarketCap?'SoSoValue':'N/A'}</em></li><li><span>24H Volume</span><b>{usd(overview?.totalVolume24h ?? null)}</b><em>{overview?.totalVolume24h?'SoDEX':'N/A'}</em></li></ul></div></section><section className="contentGrid"><div className="leftCol"><MarketTable assets={assets} onPick={onPick} watchlist={watchlist} toggleWatch={toggleWatch}/>{focus?<Candles active={focus}/>:<section className="panel" style={{padding:'18px'}}><div className="panelTitle"><b>Chart loading</b><a>Waiting for market data</a></div><p style={{color:'#aebacc'}}>Fetching SoDEX rows now. The launch chart will appear as soon as the live assets land.</p></section>}</div><aside className="rightCol"><Signals assets={assets}/><PortfolioPanel assets={assets} wallet={wallet} positions={positions}/><section className="index panel"><div className="panelTitle"><b>SoSoValue Index Stack</b><a>Research rail</a></div><h3>{indexRail?.pair || 'SSI / MAGI7'} <em className={indexRail?.change24h && indexRail.change24h>=0?'green':'red'}>{indexRail?.change24h ? pct(indexRail.change24h) : 'live'}</em></h3>{indexRail?.spark?.length?<Spark data={indexRail.spark} height={92}/>:<p style={{color:'#9cabbe'}}>Index stream unavailable</p>}</section></aside></section><section className="single"><div className="featureGrid"><article><b>Trade Copilot</b><p>Execution page turns live SoDEX spread, depth, and fee-aware cost into an actual route decision.</p></article><article><b>Index Rebalance Executor</b><p>SoSoValue baskets become allocation targets, drift checks, and rebalance tickets instead of static charts.</p></article><article><b>News-to-Execution Bot</b><p>SoSoValue hot news and macro events rank assets into an action queue with decision provenance.</p></article></div><BasketBacktest assets={assets}/></section></>
 }
 
 function JudgesPanel(props:any) {
@@ -1321,8 +1350,54 @@ function DecisionLogPage() {
   );
 }
 
+function buildLivePnl(rows:any[], assets:Asset[]) {
+  const grouped = new Map<string, { qty:number; cost:number; realized:number; buys:number; sells:number; trades:number }>();
+  for (const row of rows || []) {
+    const symbol = String(row.symbol || row.s || row.name || '').trim();
+    if (!symbol) continue;
+    const price = parseNum(row.price || row.p) || 0;
+    const quantity = parseNum(row.quantity || row.q || row.size) || 0;
+    const sideRaw = String(row.side || row.S || '').toUpperCase();
+    const side = sideRaw.includes('SELL') || sideRaw === '2' ? 'SELL' : 'BUY';
+    const state = grouped.get(symbol) || { qty: 0, cost: 0, realized: 0, buys: 0, sells: 0, trades: 0 };
+    if (side === 'BUY') {
+      state.qty += quantity;
+      state.cost += quantity * price;
+      state.buys += quantity * price;
+    } else {
+      const avgCost = state.qty > 0 ? state.cost / state.qty : price;
+      const closedQty = Math.min(state.qty, quantity);
+      state.realized += (price - avgCost) * closedQty;
+      state.qty -= closedQty;
+      state.cost -= avgCost * closedQty;
+      state.sells += quantity * price;
+    }
+    state.trades += 1;
+    grouped.set(symbol, state);
+  }
+  return Array.from(grouped.entries()).map(([symbol, state]) => {
+    const asset = assets.find((row) => row.sodexSymbol === symbol || row.symbol === symbol || row.pair.replace(/\s|\/+/g,'').toUpperCase().includes(symbol.replace(/[^A-Z]/g,'')));
+    const mark = asset?.price || 0;
+    const avgCost = state.qty > 0 ? state.cost / state.qty : 0;
+    const unrealized = state.qty > 0 && mark ? (mark - avgCost) * state.qty : 0;
+    return {
+      symbol,
+      label: asset?.symbol || symbol,
+      qty: state.qty,
+      avgCost,
+      mark,
+      realized: state.realized,
+      unrealized,
+      net: state.realized + unrealized,
+      trades: state.trades,
+      buys: state.buys,
+      sells: state.sells
+    };
+  });
+}
+
 function PortfolioLivePage(props:any) {
-  const { wallet } = props;
+  const { wallet, assets } = props;
   const [accountID, setAccountID] = useState('');
   const [symbol, setSymbol] = useState('');
   const [live, setLive] = useState<PortfolioLiveData | null>(null);
@@ -1355,6 +1430,8 @@ function PortfolioLivePage(props:any) {
   if (!wallet?.address) {
     return <div className="single"><section className="panel" style={{padding:'18px'}}><div className="panelTitle"><b>Portfolio Live</b><a>SoDEX account state</a></div><div className="walletBox"><h2>No wallet connected</h2><p>Connect the builder wallet first. This screen reads balances, order state, fee rate, and API key readiness from SoDEX against the connected address.</p></div></section></div>;
   }
+  const pnlRows = buildLivePnl(live?.trades || [], assets || []);
+  const pnlTotal = pnlRows.reduce((sum,row)=>sum+row.net,0);
 
   return (
     <div className="single">
@@ -1383,6 +1460,8 @@ function PortfolioLivePage(props:any) {
           <article><b>{live?.openOrders?.length || 0}</b><p>Open orders</p></article>
           <article><b>{live?.trades?.length || 0}</b><p>Recent trades</p></article>
           <article><b>{live?.apiKeys?.length || 0}</b><p>API keys attached</p></article>
+          <article><b className={pnlTotal>=0?'green':'red'}>{pnlRows.length ? `${pnlTotal>=0?'+':''}${usd(pnlTotal)}` : '—'}</b><p>Live PnL attribution</p></article>
+          <article><b>{pnlRows.length}</b><p>Symbols with fill history</p></article>
         </div>
         <div className="storyList" style={{ marginTop: '14px' }}>
           <article className="storyCard">
@@ -1407,6 +1486,13 @@ function PortfolioLivePage(props:any) {
               <a>{live?.openOrders?.length || 0} active</a>
             </div>
             <table><thead><tr><th>Order ID</th><th>Symbol</th><th>Side</th><th>Price</th><th>Qty</th></tr></thead><tbody>{live?.openOrders?.length ? live.openOrders.slice(0, 10).map((row:any, index:number) => <tr key={String(row.orderID || row.id || index)}><td>{row.orderID || row.id || '—'}</td><td>{row.symbol || row.name || '—'}</td><td>{row.side || '—'}</td><td>{row.price || row.p || '—'}</td><td>{row.quantity || row.q || '—'}</td></tr>) : <tr><td colSpan={5}>No open orders on this SoDEX account.</td></tr>}</tbody></table>
+          </section>
+          <section className="market panel">
+            <div className="panelTitle">
+              <b>PnL Attribution</b>
+              <a>Trades to mark</a>
+            </div>
+            <table><thead><tr><th>Symbol</th><th>Open Qty</th><th>Avg Cost</th><th>Mark</th><th>Realized</th><th>Unrealized</th><th>Net</th></tr></thead><tbody>{pnlRows.length ? pnlRows.map((row) => <tr key={row.symbol}><td>{row.label}</td><td>{row.qty.toFixed(4)}</td><td>{usd(row.avgCost || null)}</td><td>{usd(row.mark || null)}</td><td className={row.realized>=0?'green':'red'}>{row.realized>=0?'+':''}{usd(row.realized)}</td><td className={row.unrealized>=0?'green':'red'}>{row.unrealized>=0?'+':''}{usd(row.unrealized)}</td><td className={row.net>=0?'green':'red'}>{row.net>=0?'+':''}{usd(row.net)}</td></tr>) : <tr><td colSpan={7}>No SoDEX fills found yet for this wallet, so there is no live PnL attribution to compute.</td></tr>}</tbody></table>
           </section>
         </div>
         <aside className="rightCol">
@@ -1445,6 +1531,176 @@ function PortfolioLivePage(props:any) {
   );
 }
 
+function IndexRebalanceExecutor(props:any) {
+  const { assets, positions, setDecisionLog, decisionLog } = props;
+  const [mode, setMode] = useState<'Core'|'Momentum'|'ValueChain'>('Core');
+  const [capital, setCapital] = useState(10000);
+  const config = REBALANCE_BASKETS[mode];
+  const exposure = buildPaperExposure(assets, positions);
+  const rows = config.symbols.map((symbol, index) => {
+    const asset = assets.find((row:Asset) => row.symbol === symbol);
+    const targetWeight = config.weights[index] || 0;
+    const currentNotional = exposure.get(symbol) || 0;
+    const targetNotional = capital * targetWeight;
+    const delta = targetNotional - currentNotional;
+    const qty = asset?.price ? delta / asset.price : 0;
+    return { symbol, asset, targetWeight, currentNotional, targetNotional, delta, qty };
+  });
+  const totalTurnover = rows.reduce((sum, row) => sum + Math.abs(row.delta), 0);
+  const largestDrift = rows.reduce((max, row) => Math.max(max, Math.abs(row.delta)), 0);
+
+  const logPlan = () => {
+    const time = new Date().toISOString();
+    const entries = rows
+      .filter((row) => row.asset && Math.abs(row.delta) > 25)
+      .map((row) => ({
+        id: `${time}-${row.symbol}-rebalance`,
+        time,
+        symbol: row.symbol,
+        side: row.delta >= 0 ? 'BUY' as const : 'SELL' as const,
+        mode: `Index Rebalance / ${mode}`,
+        price: row.asset?.price || 0,
+        qty: Math.abs(row.qty),
+        confidence: row.asset?.confidence || 0,
+        spreadBps: null,
+        topBid: null,
+        topAsk: null,
+        depthUsd: Math.abs(row.delta),
+        signalReason: `${config.title} target ${Math.round(row.targetWeight * 100)}% vs current paper exposure ${usd(row.currentNotional)}.`,
+        newsTitle: '',
+        newsLink: '',
+        macroDate: '',
+        macroEvents: [],
+        riskGate: ['Rebalance planner', 'Paper exposure drift'],
+        outcome: `Rebalance ticket created for ${usd(Math.abs(row.delta))}`
+      }));
+    if (entries.length) setDecisionLog([...entries, ...decisionLog].slice(0, 80));
+  };
+
+  return <div className="single">
+    <section className="panel" style={{padding:'18px'}}>
+      <div className="panelTitle"><b>Index Rebalance Executor</b><a>SoSoValue basket to execution plan</a></div>
+      <div className="featureGrid">
+        <article><b>{config.title}</b><p>{config.note}</p></article>
+        <article><b>{usd(totalTurnover)}</b><p>Total turnover to hit target weights</p></article>
+        <article><b>{usd(largestDrift)}</b><p>Largest drift vs target basket</p></article>
+      </div>
+      <div className="toolBar" style={{paddingLeft:0,paddingRight:0,marginTop:'14px'}}>
+        <label>Basket
+          <select value={mode} onChange={(e)=>setMode(e.target.value as any)}>
+            <option value="Core">Core</option>
+            <option value="Momentum">Momentum</option>
+            <option value="ValueChain">ValueChain</option>
+          </select>
+        </label>
+        <label>Capital
+          <input type="number" value={capital} onChange={(e)=>setCapital(Number(e.target.value))} />
+        </label>
+        <button className="miniBtn" onClick={logPlan}>Write rebalance tickets to decision log</button>
+        <a className="miniBtn" href="/decision-log">Open Decision Log</a>
+      </div>
+      <table><thead><tr><th>Symbol</th><th>Target %</th><th>Target</th><th>Current</th><th>Delta</th><th>Qty</th><th>Action</th></tr></thead><tbody>
+        {rows.map((row)=><tr key={row.symbol}>
+          <td>{row.asset ? <Coin a={row.asset} /> : row.symbol}</td>
+          <td>{(row.targetWeight*100).toFixed(0)}%</td>
+          <td>{usd(row.targetNotional)}</td>
+          <td>{usd(row.currentNotional)}</td>
+          <td className={row.delta>=0?'green':'red'}>{row.delta>=0?'+':''}{usd(row.delta)}</td>
+          <td>{row.asset?.price ? Math.abs(row.qty).toFixed(4) : '—'}</td>
+          <td>{Math.abs(row.delta) < 25 ? 'In balance' : row.delta >= 0 ? 'Buy up' : 'Trim down'}</td>
+        </tr>)}
+      </tbody></table>
+    </section>
+  </div>;
+}
+
+function NewsExecutionBotPage(props:any) {
+  const { assets, setDecisionLog, decisionLog } = props;
+  const [stories, setStories] = useState<LiveNewsItem[]>([]);
+  const [macro, setMacro] = useState<MacroEvent[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch('/api/news-live', { cache: 'no-store' });
+      const json = await res.json();
+      setStories(json.stories || []);
+      setMacro(json.macroEvents || []);
+    } catch (err:any) {
+      setError(err?.message || 'Failed to load SoSoValue news');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+  const ranked = assets
+    .map((asset:Asset) => ({ asset, score: scoreNewsImpact(asset, stories, macro) }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5);
+
+  const createDecision = (asset: Asset) => {
+    const lead = stories[0];
+    const macroLead = macro[0];
+    const time = new Date().toISOString();
+    setDecisionLog([{
+      id: `${time}-${asset.symbol}-news-bot`,
+      time,
+      symbol: asset.symbol,
+      side: asset.change24h >= 0 ? 'BUY' : 'HOLD',
+      mode: 'News-to-Execution Alert Bot',
+      price: asset.price || 0,
+      qty: 1,
+      confidence: asset.confidence,
+      spreadBps: null,
+      topBid: null,
+      topAsk: null,
+      depthUsd: asset.volume24h || null,
+      signalReason: `SoSoValue headline pressure + momentum score ranked ${asset.symbol} near the top of the action queue.`,
+      newsTitle: lead?.title || '',
+      newsLink: lead?.link || '',
+      macroDate: macroLead?.date || '',
+      macroEvents: macroLead?.events || [],
+      riskGate: ['Alert bot', 'Needs execution confirmation'],
+      outcome: 'Decision queued for execution review'
+    }, ...decisionLog].slice(0, 80));
+  };
+
+  return <div className="single">
+    <section className="panel" style={{padding:'18px'}}>
+      <div className="panelTitle"><b>News-to-Execution Alert Bot</b><a>{loading ? 'Refreshing...' : 'SoSoValue-driven queue'}</a></div>
+      {error && <div className="walletError">{error}</div>}
+      <div className="featureGrid">
+        <article><b>{stories.length}</b><p>Live SoSoValue stories scanned</p></article>
+        <article><b>{macro.length}</b><p>Macro dates folded into ranking</p></article>
+        <article><b>{ranked[0]?.asset.symbol || '—'}</b><p>Top execution candidate right now</p></article>
+      </div>
+      <div className="toolBar" style={{paddingLeft:0,paddingRight:0,marginTop:'14px'}}>
+        <button className="miniBtn" onClick={load}>Refresh news queue</button>
+        <a className="miniBtn" href="/news-and-insights">Open full news feed</a>
+        <a className="miniBtn" href="/decision-log">Open decision log</a>
+      </div>
+      <div className="storyList" style={{marginTop:'14px'}}>
+        {ranked.map(({ asset, score }) => (
+          <article className="storyCard" key={asset.symbol}>
+            <div className="storyMeta"><span>{asset.symbol}</span><em>Score {score.toFixed(2)}</em></div>
+            <b>{asset.name} · {asset.signal} · {pct(asset.change24h)}</b>
+            <p>Ranked from SoSoValue hot news, macro calendar context, and current market momentum. This turns news into an execution shortlist instead of a passive reading panel.</p>
+            <div className="launchCtas">
+              <span className="miniBtn">{usd(asset.price)}</span>
+              <span className="miniBtn">{asset.confidence}% confidence</span>
+              <button className="miniBtn" onClick={() => createDecision(asset)}>Queue decision</button>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  </div>;
+}
+
 function Dashboard(props:any){const {assets,main,onPick,wallet,watchlist,toggleWatch,positions}=props; const marketCap=assets.reduce((s: number,a:Asset)=>s+(a.marketCap||0),0), volume=assets.reduce((s:number,a:Asset)=>s+(a.volume24h||0),0); return <><section className="topGrid"><div className="hero panel"><div><h1>SoDEX <span>Alpha Terminal</span></h1><p>AI-powered research • real market data • wallet-ready workflows</p><div className="heroStats"><MiniStat label="Research" value="10x"/><MiniStat label="Monitoring" value="24/7"/><MiniStat label="Modules" value="15"/><MiniStat label="Wallet" value={wallet?'ON':'READY'}/></div></div><div className="orb"><span>◇</span></div></div><div className="overview panel"><div className="panelTitle"><b>Market Overview</b><a>Live</a></div><div className="gauge"><div><b>62</b><span>Greed</span></div></div><ul><li><span>BTC Dominance</span><b>54.63%</b><em className="red">-0.21%</em></li><li><span>Total Market Cap</span><b>{usd(marketCap)}</b><em className="green">+1.45%</em></li><li><span>24H Volume</span><b>{usd(volume)}</b><em className="green">+6.21%</em></li></ul></div></section><section className="contentGrid"><div className="leftCol"><MarketTable assets={assets} onPick={onPick} watchlist={watchlist} toggleWatch={toggleWatch}/><Candles active={main}/></div><aside className="rightCol"><Signals assets={assets}/><PortfolioPanel assets={assets} wallet={wallet} positions={positions}/><section className="index panel"><div className="panelTitle"><b>SoSoValue Index Stack</b><a>Indexes</a></div><h3>SSI / MAGI7 <em className="green">active</em></h3><Spark data={[10,12,14,16,19,17,21,25,28,31,29,35,38,41,39,44,49,53]} height={92}/></section></aside></section></>}
 
 function Markets(props:any){const [q,setQ]=useState(''); const [sort,setSort]=useState('marketCap'); const filtered=props.assets.filter((a:Asset)=>(a.symbol+a.name).toLowerCase().includes(q.toLowerCase())).sort((a:Asset,b:Asset)=>sort==='gainers'?b.change24h-a.change24h:sort==='volume'?(b.volume24h||0)-(a.volume24h||0):(b.marketCap||0)-(a.marketCap||0)); return <div className="single"><section className="toolBar panel"><input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search markets"/><select value={sort} onChange={e=>setSort(e.target.value)}><option value="marketCap">Market cap</option><option value="gainers">Top gainers</option><option value="volume">Volume</option></select></section><MarketTable {...props} assets={filtered}/>{props.main&&<Candles active={props.main}/>}</div>}
@@ -1471,6 +1727,6 @@ export default function Terminal({initialMenu='Dashboard'}:{initialMenu?:string}
   const disconnect=()=>{setWallet(null); localStorage.removeItem('sodex.wallet.connected')};
   useEffect(()=>{const eth=window.ethereum; if(!eth)return; if(localStorage.getItem('sodex.wallet.connected')) eth.request({method:'eth_accounts'}).then((a:string[])=>a?.[0]&&readWallet(a[0])).catch(()=>{}); const onAcc=(a:string[])=>a?.[0]?readWallet(a[0]):disconnect(); const onChain=()=>wallet?.address&&readWallet(wallet.address); eth.on?.('accountsChanged',onAcc); eth.on?.('chainChanged',onChain); return()=>{eth.removeListener?.('accountsChanged',onAcc); eth.removeListener?.('chainChanged',onChain)}},[readWallet,wallet?.address]);
   const main=active||assets[0]; const marketCap=assets.reduce((s,a)=>s+(a.marketCap||0),0), volume=assets.reduce((s,a)=>s+(a.volume24h||0),0); const props={assets,main,onPick:setActive,wallet,watchlist,toggleWatch,positions,setPositions,alerts,setAlerts,addTrade,overview,decisionLog,setDecisionLog};
-  const page = activeMenu==='Launch'||activeMenu==='Dashboard'?<LaunchPanel {...props}/>:activeMenu==='Judges'?<JudgesPanel {...props}/>:activeMenu==='Execution'?<ExecutionDesk {...props}/>:activeMenu==='Decision Log'?<DecisionLogPage />:activeMenu==='Markets'?<Markets {...props}/>:activeMenu==='Watchlist'?<Watchlist {...props}/>:activeMenu==='Alpha Signals'?<AlphaSignals {...props}/>:activeMenu==='Screener'?<Screener {...props}/>:activeMenu==='Heatmap'?<Heatmap {...props}/>:activeMenu==='Portfolio'?<PortfolioPage {...props}/>:activeMenu==='Portfolio Live'?<PortfolioLivePage {...props}/>:activeMenu==='Paper Trading'?<PaperTrading {...props}/>:activeMenu==='Alerts'?<Alerts {...props}/>:activeMenu==='Diag'?<DiagPanel {...props}/>:activeMenu==='AI Research'?<ResearchPanel {...props}/>:activeMenu==='News & Insights'?<NewsFeedPanel />:['SoSoValue Indexes','On-Chain','Leaderboard','Settings'].includes(activeMenu)?<SimpleModule title={activeMenu} assets={assets}/>:main?<LaunchPanel {...props}/>:null;
+  const page = activeMenu==='Launch'||activeMenu==='Dashboard'?<LaunchPanel {...props}/>:activeMenu==='Judges'?<JudgesPanel {...props}/>:activeMenu==='Execution'?<ExecutionDesk {...props}/>:activeMenu==='Decision Log'?<DecisionLogPage />:activeMenu==='Markets'?<Markets {...props}/>:activeMenu==='Watchlist'?<Watchlist {...props}/>:activeMenu==='Alpha Signals'?<AlphaSignals {...props}/>:activeMenu==='Screener'?<Screener {...props}/>:activeMenu==='Heatmap'?<Heatmap {...props}/>:activeMenu==='Portfolio'?<PortfolioPage {...props}/>:activeMenu==='Portfolio Live'?<PortfolioLivePage {...props}/>:activeMenu==='Paper Trading'?<PaperTrading {...props}/>:activeMenu==='Alerts'?<NewsExecutionBotPage {...props}/>:activeMenu==='Diag'?<DiagPanel {...props}/>:activeMenu==='AI Research'?<ResearchPanel {...props}/>:activeMenu==='News & Insights'?<NewsFeedPanel />:activeMenu==='SoSoValue Indexes'?<IndexRebalanceExecutor {...props}/>:['On-Chain','Leaderboard','Settings'].includes(activeMenu)?<SimpleModule title={activeMenu} assets={assets}/>:main?<LaunchPanel {...props}/>:null;
   return <main className="app"><aside className="sidebar"><div className="logo brandLogo"><img src="/sodex-logo.jpg" alt="SoDEX logo"/><p><b>SoDEX</b><span>ALPHA TERMINAL</span></p></div><nav>{nav.map((n,i)=><a key={n} href={pathOf(n)} onClick={(e)=>{e.preventDefault(); window.history.pushState(null,'',pathOf(n)); setActiveMenu(n)}} className={activeMenu===n?'active':''}><span>{navIcons[i]}</span>{n}{n==='Alpha Signals'&&<em>LIVE</em>}</a>)}</nav><div className="community"><small>OFFICIAL & COMMUNITY</small>{official.slice(0,4).map(([l,h])=><a key={l} href={h} target="_blank">{l}<span>↗</span></a>)}</div></aside><section className="desk"><header className="playerBar compactBar"><div className="theme launchTheme"><div className="disc">◎</div><p><b>SoSoValue Launch Rail</b><span>Research, execution, diagnostics in one desk</span></p></div><div className="actions"><button className="bell" onClick={loadMarket}>{loading?'↻':'⟳'}</button>{wallet?<button onClick={disconnect} className="wallet">{short(wallet.address)} · Disconnect</button>:<button onClick={connect} className="wallet">Connect Wallet</button>}<button className="sun">✦</button></div></header>{walletError&&<div className="walletError">{walletError}</div>}<div className="ticker">{assets.map(a=><button key={a.symbol} onClick={()=>setActive(a)}><b>{a.symbol}</b><span>{usd(a.price)}</span><em className={a.change24h>=0?'green':'red'}>{pct(a.change24h)}</em></button>)}<button><span>Market Cap</span><b>{usd(overview?.totalMarketCap ?? marketCap)}</b><em>{overview?.leaders?.[0] || 'live'}</em></button><button><span>24H Vol</span><b>{usd(overview?.totalVolume24h ?? volume)}</b><em>{overview?.breadthPct ? `${Math.round(overview.breadthPct)}% green` : 'live'}</em></button><button><span>BTC.D</span><b>{overview?.btcDominance ? `${overview.btcDominance.toFixed(2)}%` : '—'}</b><em>{overview?.leaders?.slice(0,2).join(' · ') || 'SoSoValue'}</em></button></div>{page}</section></main>
 }
