@@ -1,4 +1,5 @@
 import { requestSosovalue } from './sosovalue';
+import { SODEX_API_KEY_NAME, SODEX_SPOT_ENDPOINT as SPOT_ENDPOINT, sodexRuntimeStatus as coreSodexRuntimeStatus } from './sodex';
 
 export type Signal = 'BUY' | 'HOLD' | 'WATCH';
 
@@ -52,11 +53,6 @@ export type MarketDetail = {
   klines: CandlePoint[];
 };
 
-const SPOT_ENDPOINT = process.env.SODEX_SPOT_ENDPOINT || 'https://mainnet-gw.sodex.dev/api/v1/spot';
-const SODEX_API_KEY_NAME = process.env.SODEX_API_KEY_NAME || '';
-const SODEX_API_PUBLIC_KEY = process.env.SODEX_API_PUBLIC_KEY || '';
-const SODEX_API_PRIVATE_KEY = process.env.SODEX_API_PRIVATE_KEY || '';
-
 const WATCHLIST = [
   { symbol: 'BTC', name: 'Bitcoin', pair: 'BTC / USDC', sodex: 'vBTC_vUSDC', category: 'Crypto Asset', icon: '₿' },
   { symbol: 'ETH', name: 'Ethereum', pair: 'ETH / USDC', sodex: 'vETH_vUSDC', category: 'Crypto Asset', icon: '◆' },
@@ -108,7 +104,7 @@ function unwrapList(payload: any): any[] {
 async function fetchJson(url: string) {
   const headers: HeadersInit = { Accept: 'application/json' };
   if (SODEX_API_KEY_NAME) headers['X-API-Key'] = SODEX_API_KEY_NAME;
-  const res = await fetch(url, { headers, next: { revalidate: 45 } });
+  const res = await fetch(url, { headers, cache: 'force-cache' });
   if (!res.ok) throw new Error(`${res.status} ${url}`);
   return res.json();
 }
@@ -346,10 +342,5 @@ export async function getMarketDetail(symbol: string): Promise<MarketDetail | nu
 }
 
 export function sodexRuntimeStatus() {
-  return {
-    spotEndpoint: SPOT_ENDPOINT,
-    hasApiKeyName: Boolean(SODEX_API_KEY_NAME),
-    hasApiPublicKey: Boolean(SODEX_API_PUBLIC_KEY),
-    hasApiPrivateKey: Boolean(SODEX_API_PRIVATE_KEY)
-  };
+  return coreSodexRuntimeStatus();
 }

@@ -9,23 +9,28 @@ type Asset = {
   symbol: string; name: string; pair: string; price: number | null; change24h: number; change7d: number;
   volume24h: number | null; marketCap: number | null; signal: Signal; confidence: number;
   entry: number | null; stop: number | null; take: number | null; spark: number[]; chart: CandlePoint[]; category: string; icon: string;
+  sodexSymbol?: string; sosoCurrencyId?: string;
 };
 type MarketOverview = { totalMarketCap: number | null; totalVolume24h: number | null; btcDominance: number | null; breadthPct: number | null; leaders: string[] };
 type WalletState = { address: string; chainId: string; balance: string } | null;
 type PaperPosition = { symbol: string; side: 'BUY'|'SELL'; qty: number; entry: number; time: string };
 type AlertRule = { symbol: string; target: number; side: 'above'|'below'; id: string };
 type BotAction = { time: string; symbol: string; side: 'BUY' | 'SELL' | 'HOLD'; score: number; reason: string; qty: number; price: number; mode: string };
+type LiveNewsItem = { id: string; source: 'hot' | 'featured'; title: string; summary: string; releaseTime: number; author: string; link: string; tags: string[]; image: string };
+type MacroEvent = { date: string; events: string[] };
+type PortfolioLiveData = { address: string; requestedAccountID: string; state: { user: string; aid: number; uid: number; balancesRaw: any[]; openOrdersRaw: any[] }; balances: { coin: string; total: number | null; available: number | null; locked: number | null }[]; openOrders: any[]; orderHistory: any[]; trades: any[]; feeRate: any; apiKeys: any[]; accountReady: boolean; serverSignerLoaded: boolean };
 
 declare global { interface Window { ethereum?: any } }
 
-const nav = ['Launch','Judges','Execution','Markets','Watchlist','Alpha Signals','Screener','Heatmap','Portfolio','Paper Trading','News & Insights','SoSoValue Indexes','On-Chain','AI Research','Alerts','Leaderboard','Settings','Diag'];
-const navIcons = ['⌂','⚖','⇢','⌁','★','◌','⚗','⌘','▣','◎','▤','◈','⌬','✺','♧','♕','⚙','◧'];
+const nav = ['Launch','Judges','Execution','Markets','Watchlist','Alpha Signals','Screener','Heatmap','Portfolio','Portfolio Live','Paper Trading','News & Insights','SoSoValue Indexes','On-Chain','AI Research','Alerts','Leaderboard','Settings','Diag'];
+const navIcons = ['⌂','⚖','⇢','⌁','★','◌','⚗','⌘','▣','◫','◎','▤','◈','⌬','✺','♧','♕','⚙','◧'];
 const official = [['SoSoValue Project','https://sosovalue.com/'],['SoSoValue Console','https://sosovalue.com/developer/dashboard'],['SoSoValue API Docs','https://sosovalue-1.gitbook.io/sosovalue-api-doc'],['SoDEX Official','https://sodex.com/'],['SoDEX REST API','https://sodex.com/documentation/trading-api/rest-v1'],['Telegram','https://t.me/SoSoValueCommunity'],['Discord','https://discord.gg/sodex'],['Follow SoSoValue','https://x.com/SoSoValueCrypto'],['Follow SoDEX','https://x.com/sodex_official']];
 const pathOf = (n:string)=> `/${n.toLowerCase().replace(/&/g,'and').replace(/\s+/g,'-').replace(/[^a-z0-9-]/g,'')}`;
 const usd = (n:number|null)=> n==null||Number.isNaN(n) ? '—' : n>=1e12?`$${(n/1e12).toFixed(2)}T`:n>=1e9?`$${(n/1e9).toFixed(2)}B`:n>=1e6?`$${(n/1e6).toFixed(2)}M`:n>=1000?`$${n.toLocaleString(undefined,{maximumFractionDigits:0})}`:n>=1?`$${n.toLocaleString(undefined,{maximumFractionDigits:2})}`:`$${n.toLocaleString(undefined,{maximumFractionDigits:4})}`;
 const pct = (n:number)=>`${n>=0?'+':''}${n.toFixed(2)}%`;
 const short = (a:string)=>a?`${a.slice(0,6)}...${a.slice(-4)}`:'';
 const chainName = (id:string)=>({'0x1':'Ethereum','0xaa36a7':'Sepolia','0x89':'Polygon','0xa':'Optimism','0xa4b1':'Arbitrum'} as Record<string,string>)[id] || id;
+const formatDateTime = (value:number|string)=>{const n=Number(value); if(!n) return '—'; return new Date(n).toLocaleString()};
 
 function useLocal<T>(key:string, fallback:T){
   const [val,setVal] = useState<T>(fallback);
@@ -306,7 +311,7 @@ function JudgesPanel(props:any) {
 }
 
 function ExecutionDesk(props:any) {
-  const { assets, addTrade, positions, setPositions } = props;
+  const { assets, addTrade, positions, setPositions, wallet } = props;
   const tradable = useMemo(() => assets.filter((asset: Asset) => asset.price !== null), [assets]);
   const [symbol, setSymbol] = useState(tradable[0]?.symbol || 'BTC');
   const [budget, setBudget] = useState(1000);
@@ -320,6 +325,16 @@ function ExecutionDesk(props:any) {
   const [botInterval, setBotInterval] = useState(18);
   const [botStatus, setBotStatus] = useState('Idle');
   const [detail, setDetail] = useState<any>(null);
+  const [accountID, setAccountID] = useState('');
+  const [orderType, setOrderType] = useState<'LIMIT' | 'MARKET'>('LIMIT');
+  const [liveQuantity, setLiveQuantity] = useState('0.01');
+  const [liveFunds, setLiveFunds] = useState('250');
+  const [livePrice, setLivePrice] = useState('');
+  const [liveMode, setLiveMode] = useState<'server' | 'browser'>('server');
+  const [liveStatus, setLiveStatus] = useState('');
+  const [liveError, setLiveError] = useState('');
+  const [liveResult, setLiveResult] = useState<any>(null);
+  const [liveAccount, setLiveAccount] = useState<PortfolioLiveData | null>(null);
 
   const asset = tradable.find((item: Asset) => item.symbol === symbol) || tradable[0] || null;
   useEffect(() => { if (asset?.symbol) setSymbol(asset.symbol); }, [asset?.symbol]);
@@ -332,6 +347,25 @@ function ExecutionDesk(props:any) {
       .catch(() => { if (live) setDetail(null); });
     return () => { live = false; };
   }, [symbol]);
+  useEffect(() => {
+    if (asset?.price) setLivePrice(String(asset.price));
+  }, [asset?.price]);
+  useEffect(() => {
+    if (!wallet?.address) {
+      setLiveAccount(null);
+      return;
+    }
+    let active = true;
+    fetch(`/api/portfolio-live?address=${encodeURIComponent(wallet.address)}`, { cache: 'no-store' })
+      .then((res) => res.json())
+      .then((json) => {
+        if (!active || !json.ok) return;
+        setLiveAccount(json.data || null);
+        if (!accountID && json.data?.state?.aid) setAccountID(String(json.data.state.aid));
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [wallet?.address, accountID]);
   const price = asset?.price || 0;
   const qty = price > 0 ? budget / price : 0;
   const liveSpreadPct = detail?.spreadBps ? detail.spreadBps / 100 : null;
@@ -444,8 +478,74 @@ function ExecutionDesk(props:any) {
     }))
     .sort((a, b) => b.score - a.score)[0];
   const botFillCount = botHistory.length;
-  const recentBot = botHistory[0] || null;
   const botPnLHint = topBotPick?.item ? deriveScenarioMove(topBotPick.item) * 100 : 0;
+  const liveOrderSymbol = asset?.sodexSymbol || (symbol === 'BTC' ? 'vBTC_vUSDC' : symbol === 'ETH' ? 'vETH_vUSDC' : symbol === 'SOL' ? 'vSOL_vUSDC' : symbol === 'LINK' ? 'vLINK_vUSDC' : symbol === 'SOSO' ? 'SOSO_USDC' : '');
+
+  const submitLiveOrder = useCallback(async () => {
+    setLiveError('');
+    setLiveStatus('');
+    setLiveResult(null);
+    if (!wallet?.address) {
+      setLiveError('Connect the builder wallet before routing a live SoDEX order.');
+      return;
+    }
+    if (!liveOrderSymbol) {
+      setLiveError('This asset is not mapped to a live SoDEX spot symbol.');
+      return;
+    }
+    if (!accountID) {
+      setLiveError('Account ID is required. Load Portfolio Live or enter the SoDEX account ID manually.');
+      return;
+    }
+    const payload = {
+      walletAddress: wallet.address,
+      accountID: Number(accountID),
+      symbol: liveOrderSymbol,
+      side,
+      type: orderType,
+      quantity: orderType === 'MARKET' && liveFunds ? undefined : liveQuantity,
+      funds: orderType === 'MARKET' ? liveFunds : undefined,
+      price: orderType === 'LIMIT' ? livePrice : undefined
+    };
+    try {
+      if (liveMode === 'server') {
+        setLiveStatus('Sending server-signed order to SoDEX...');
+        const res = await fetch('/api/sodex/order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        const json = await res.json();
+        if (!json.ok) throw new Error(json.error || 'Server-signed order failed');
+        setLiveResult(json);
+        setLiveStatus('Server-signed order submitted to SoDEX.');
+        return;
+      }
+      if (!window.ethereum) {
+        throw new Error('No browser wallet available for typed-data signing.');
+      }
+      setLiveStatus('Preparing typed-data payload...');
+      const preparedRes = await fetch('/api/sodex/prepare', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const preparedJson = await preparedRes.json();
+      if (!preparedJson.ok) throw new Error(preparedJson.error || 'Prepare failed');
+      if (preparedJson.prepared?.apiPublicKey && preparedJson.prepared.apiPublicKey.toLowerCase() !== wallet.address.toLowerCase()) {
+        throw new Error(`Browser flow requires the connected wallet to match the SoDEX API public key ${preparedJson.prepared.apiPublicKey}.`);
+      }
+      setLiveStatus('Awaiting browser-wallet signature...');
+      const signature = await window.ethereum.request({
+        method: 'eth_signTypedData_v4',
+        params: [wallet.address, JSON.stringify(preparedJson.prepared.typedData)]
+      });
+      const submitRes = await fetch('/api/sodex/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prepared: preparedJson.prepared, signature })
+      });
+      const submitJson = await submitRes.json();
+      if (!submitJson.ok) throw new Error(submitJson.error || 'Signed submit failed');
+      setLiveResult(submitJson);
+      setLiveStatus('Browser-signed order submitted to SoDEX.');
+    } catch (err: any) {
+      setLiveError(err?.message || 'Failed to route live order');
+      setLiveStatus('');
+    }
+  }, [wallet?.address, liveOrderSymbol, accountID, side, orderType, liveQuantity, liveFunds, livePrice, liveMode]);
 
   return (
     <div className="single">
@@ -463,7 +563,7 @@ function ExecutionDesk(props:any) {
         <div className="featureGrid" style={{ marginTop: '14px' }}>
           <article><b>Pre-trade check</b><p>Route a trade only after size, fee, spread, and impact are visible.</p></article>
           <article><b>Signal context</b><p>Uses the current SoDEX row and SoSoValue signals already on the page.</p></article>
-          <article><b>Execution path</b><p>One click routes the idea into paper trading for demo safety.</p></article>
+          <article><b>Execution path</b><p>Supports paper route plus live SoDEX order flow with server-side or browser-wallet signing.</p></article>
         </div>
         <div className="toolBar" style={{ paddingLeft: 0, paddingRight: 0, marginTop: '14px' }}>
           <label>Asset
@@ -584,6 +684,50 @@ function ExecutionDesk(props:any) {
           <button className="miniBtn" onClick={planTrade}>Send to paper trading</button>
           <span className="miniBtn">Best for demoing execution logic before live orders</span>
           <a className="miniBtn" href="/diag">Cross-check stack</a>
+        </div>
+        <div className="botPanel" style={{ marginTop: '14px' }}>
+          <div className="panelTitle">
+            <b>Live SoDEX Order Route</b>
+            <a>{wallet?.address ? short(wallet.address) : 'wallet required'}</a>
+          </div>
+          {liveError && <div className="walletError" style={{ margin: '0 0 14px 0' }}>{liveError}</div>}
+          <div className="featureGrid">
+            <article><b>{liveOrderSymbol || '—'}</b><p>Mapped SoDEX symbol</p></article>
+            <article><b>{accountID || liveAccount?.state?.aid || 0}</b><p>Account ID</p></article>
+            <article><b>{liveAccount?.accountReady ? 'READY' : 'CHECK'}</b><p>SoDEX account readiness</p></article>
+            <article><b>{liveMode.toUpperCase()}</b><p>Signing path</p></article>
+          </div>
+          <div className="toolBar" style={{ paddingLeft: 0, paddingRight: 0, marginTop: '14px' }}>
+            <label>Mode
+              <select value={liveMode} onChange={(e) => setLiveMode(e.target.value as 'server' | 'browser')}>
+                <option value="server">Server-side signer</option>
+                <option value="browser">Browser wallet typed-data</option>
+              </select>
+            </label>
+            <label>Account ID
+              <input value={accountID} onChange={(e) => setAccountID(e.target.value)} placeholder="required" />
+            </label>
+            <label>Order type
+              <select value={orderType} onChange={(e) => setOrderType(e.target.value as 'LIMIT' | 'MARKET')}>
+                <option value="LIMIT">LIMIT</option>
+                <option value="MARKET">MARKET</option>
+              </select>
+            </label>
+            <label>Quantity
+              <input value={liveQuantity} onChange={(e) => setLiveQuantity(e.target.value)} placeholder="0.01" />
+            </label>
+            <label>Funds
+              <input value={liveFunds} onChange={(e) => setLiveFunds(e.target.value)} placeholder="250" />
+            </label>
+            <label>Price
+              <input value={livePrice} onChange={(e) => setLivePrice(e.target.value)} placeholder="limit only" />
+            </label>
+          </div>
+          <div className="toolBar" style={{ paddingLeft: 0, paddingRight: 0 }}>
+            <button className="miniBtn" onClick={submitLiveOrder}>Submit live order</button>
+            <span className="miniBtn">{liveStatus || 'Order route idle'}</span>
+          </div>
+          {liveResult && <div className="panel" style={{ padding: '14px', marginTop: '14px', background: 'rgba(255,255,255,0.03)' }}><div className="panelTitle"><b>Live Response</b><a>SoDEX</a></div><pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0, color: '#dfe7f5' }}>{JSON.stringify(liveResult, null, 2)}</pre></div>}
         </div>
         <div className="botPanel">
           <div className="panelTitle">
@@ -761,6 +905,245 @@ function ResearchPanel(props:any) {
   );
 }
 
+function NewsFeedPanel() {
+  const [stories, setStories] = useState<LiveNewsItem[]>([]);
+  const [featured, setFeatured] = useState<LiveNewsItem[]>([]);
+  const [macro, setMacro] = useState<MacroEvent[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch('/api/news-live', { cache: 'no-store' });
+      const json = await res.json();
+      setStories(json.stories || []);
+      setFeatured(json.featured || []);
+      setMacro(json.macroEvents || []);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to load live SoSoValue feed');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+  const lead = featured[0] || stories[0];
+  return (
+    <div className="single">
+      <section className="panel" style={{ padding: '18px' }}>
+        <div className="panelTitle">
+          <b>News & Insights</b>
+          <a>{loading ? 'Refreshing...' : 'SoSoValue live feed'}</a>
+        </div>
+        {error && <div className="walletError">{error}</div>}
+        {lead && (
+          <div className="judgeHeroCard" style={{ marginBottom: '14px' }}>
+            <div>
+              <span>{lead.source === 'featured' ? 'Featured research' : 'Hot tape'}</span>
+              <h3>{lead.title}</h3>
+              <p style={{ color: '#c8d3e6', lineHeight: 1.6 }}>{lead.summary}</p>
+            </div>
+            <div className="judgeScore">
+              <b>{lead.author}</b>
+              <p>{formatDateTime(lead.releaseTime)}</p>
+            </div>
+          </div>
+        )}
+        <div className="featureGrid">
+          <article><b>{stories.length}</b><p>Combined hot + featured stories</p></article>
+          <article><b>{macro.length}</b><p>Upcoming macro dates</p></article>
+          <article><b>{featured.length}</b><p>Featured research cards</p></article>
+        </div>
+        <div className="toolBar" style={{ paddingLeft: 0, paddingRight: 0, marginTop: '14px' }}>
+          <button className="miniBtn" onClick={load}>Refresh feed</button>
+          <a className="miniBtn" href={SOSOVALUE_CONSOLE_URL} target="_blank" rel="noreferrer">SoSoValue Console</a>
+          <a className="miniBtn" href={SOSOVALUE_DOCS_URL} target="_blank" rel="noreferrer">API Docs</a>
+        </div>
+      </section>
+      <section className="contentGrid" style={{ paddingTop: 0 }}>
+        <div className="leftCol">
+          <section className="market panel">
+            <div className="panelTitle">
+              <b>Hot News</b>
+              <a>Live from SoSoValue</a>
+            </div>
+            <div className="storyList">
+              {stories.slice(0, 10).map((story) => (
+                <a className="storyCard" key={story.id} href={story.link} target="_blank" rel="noreferrer">
+                  <div className="storyMeta">
+                    <span>{story.source.toUpperCase()}</span>
+                    <em>{formatDateTime(story.releaseTime)}</em>
+                  </div>
+                  <b>{story.title}</b>
+                  <p>{story.summary}</p>
+                  <small>{story.author}</small>
+                </a>
+              ))}
+            </div>
+          </section>
+        </div>
+        <aside className="rightCol">
+          <section className="panel" style={{ padding: '16px' }}>
+            <div className="panelTitle">
+              <b>Macro Events</b>
+              <a>Calendar rail</a>
+            </div>
+            <div className="storyList">
+              {macro.slice(0, 6).map((row) => (
+                <article className="storyCard" key={row.date}>
+                  <div className="storyMeta">
+                    <span>MACRO</span>
+                    <em>{row.date}</em>
+                  </div>
+                  <b>{row.events[0] || 'Event day'}</b>
+                  <p>{row.events.join(' · ')}</p>
+                </article>
+              ))}
+            </div>
+          </section>
+          <section className="panel" style={{ padding: '16px' }}>
+            <div className="panelTitle">
+              <b>Featured Research</b>
+              <a>Editorial rail</a>
+            </div>
+            <div className="storyList">
+              {featured.slice(0, 5).map((story) => (
+                <a className="storyCard" key={story.id} href={story.link} target="_blank" rel="noreferrer">
+                  <div className="storyMeta">
+                    <span>FEATURED</span>
+                    <em>{story.author}</em>
+                  </div>
+                  <b>{story.title}</b>
+                  <p>{story.summary}</p>
+                </a>
+              ))}
+            </div>
+          </section>
+        </aside>
+      </section>
+    </div>
+  );
+}
+
+function PortfolioLivePage(props:any) {
+  const { wallet } = props;
+  const [accountID, setAccountID] = useState('');
+  const [symbol, setSymbol] = useState('');
+  const [live, setLive] = useState<PortfolioLiveData | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const load = useCallback(async () => {
+    if (!wallet?.address) return;
+    setLoading(true);
+    setError('');
+    try {
+      const qs = new URLSearchParams({ address: wallet.address });
+      if (accountID) qs.set('accountID', accountID);
+      if (symbol) qs.set('symbol', symbol);
+      const res = await fetch(`/api/portfolio-live?${qs.toString()}`, { cache: 'no-store' });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || 'Portfolio read failed');
+      setLive(json.data || null);
+      if (!accountID && json.data?.state?.aid) setAccountID(String(json.data.state.aid));
+    } catch (err: any) {
+      setError(err?.message || 'Failed to load SoDEX live portfolio');
+      setLive(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [wallet?.address, accountID, symbol]);
+
+  useEffect(() => { if (wallet?.address) load(); }, [wallet?.address, load]);
+
+  if (!wallet?.address) {
+    return <div className="single"><section className="panel" style={{padding:'18px'}}><div className="panelTitle"><b>Portfolio Live</b><a>SoDEX account state</a></div><div className="walletBox"><h2>No wallet connected</h2><p>Connect the builder wallet first. This screen reads balances, order state, fee rate, and API key readiness from SoDEX against the connected address.</p></div></section></div>;
+  }
+
+  return (
+    <div className="single">
+      <section className="panel" style={{ padding: '18px' }}>
+        <div className="panelTitle">
+          <b>Portfolio Live</b>
+          <a>{loading ? 'Refreshing...' : 'SoDEX account read'}</a>
+        </div>
+        {error && <div className="walletError">{error}</div>}
+        <div className="toolBar" style={{ paddingLeft: 0, paddingRight: 0 }}>
+          <label>Wallet
+            <input value={wallet.address} readOnly />
+          </label>
+          <label>Account ID
+            <input value={accountID} onChange={(e) => setAccountID(e.target.value)} placeholder="auto or manual" />
+          </label>
+          <label>Symbol
+            <input value={symbol} onChange={(e) => setSymbol(e.target.value)} placeholder="vBTC_vUSDC optional" />
+          </label>
+          <button className="miniBtn" onClick={load}>Refresh live state</button>
+        </div>
+        <div className="featureGrid" style={{ marginTop: '14px' }}>
+          <article><b>{live?.state?.aid || 0}</b><p>Account ID from SoDEX state</p></article>
+          <article><b>{live?.accountReady ? 'READY' : 'NOT READY'}</b><p>Account status</p></article>
+          <article><b>{live?.balances?.length || 0}</b><p>Balance rows</p></article>
+          <article><b>{live?.openOrders?.length || 0}</b><p>Open orders</p></article>
+          <article><b>{live?.trades?.length || 0}</b><p>Recent trades</p></article>
+          <article><b>{live?.apiKeys?.length || 0}</b><p>API keys attached</p></article>
+        </div>
+      </section>
+      <section className="contentGrid" style={{ paddingTop: 0 }}>
+        <div className="leftCol">
+          <section className="market panel">
+            <div className="panelTitle">
+              <b>Balances</b>
+              <a>{live?.state?.user ? short(live.state.user) : 'No active SoDEX user'}</a>
+            </div>
+            <table><thead><tr><th>Coin</th><th>Total</th><th>Available</th><th>Locked</th></tr></thead><tbody>{live?.balances?.length ? live.balances.map((row) => <tr key={row.coin}><td>{row.coin}</td><td>{usd(row.total)}</td><td>{usd(row.available)}</td><td>{usd(row.locked)}</td></tr>) : <tr><td colSpan={4}>No live balances returned for this wallet.</td></tr>}</tbody></table>
+          </section>
+          <section className="market panel">
+            <div className="panelTitle">
+              <b>Open Orders</b>
+              <a>{live?.openOrders?.length || 0} active</a>
+            </div>
+            <table><thead><tr><th>Order ID</th><th>Symbol</th><th>Side</th><th>Price</th><th>Qty</th></tr></thead><tbody>{live?.openOrders?.length ? live.openOrders.slice(0, 10).map((row:any, index:number) => <tr key={String(row.orderID || row.id || index)}><td>{row.orderID || row.id || '—'}</td><td>{row.symbol || row.name || '—'}</td><td>{row.side || '—'}</td><td>{row.price || row.p || '—'}</td><td>{row.quantity || row.q || '—'}</td></tr>) : <tr><td colSpan={5}>No open orders on this SoDEX account.</td></tr>}</tbody></table>
+          </section>
+        </div>
+        <aside className="rightCol">
+          <section className="panel" style={{ padding: '16px' }}>
+            <div className="panelTitle">
+              <b>Recent Trades</b>
+              <a>{live?.trades?.length || 0} rows</a>
+            </div>
+            <div className="storyList">
+              {live?.trades?.length ? live.trades.slice(0, 8).map((row:any, index:number) => (
+                <article className="storyCard" key={String(row.tradeID || row.id || index)}>
+                  <div className="storyMeta">
+                    <span>{row.symbol || 'TRADE'}</span>
+                    <em>{formatDateTime(row.time || row.T || 0)}</em>
+                  </div>
+                  <b>{row.side || '—'} · {row.price || row.p || '—'}</b>
+                  <p>Quantity: {row.quantity || row.q || '—'}</p>
+                </article>
+              )) : <article className="storyCard"><b>No recent trades</b><p>This wallet has not returned any live trade rows from SoDEX yet.</p></article>}
+            </div>
+          </section>
+          <section className="panel" style={{ padding: '16px' }}>
+            <div className="panelTitle">
+              <b>Readiness</b>
+              <a>Builder proof</a>
+            </div>
+            <div className="storyList">
+              <article className="storyCard"><b>Fee rate</b><p>{live?.feeRate ? JSON.stringify(live.feeRate) : 'No fee rate response yet.'}</p></article>
+              <article className="storyCard"><b>API keys</b><p>{live?.apiKeys?.length ? JSON.stringify(live.apiKeys) : 'No API key rows returned for this wallet/account query.'}</p></article>
+              <article className="storyCard"><b>Raw state</b><p>{live ? `aid=${live.state.aid} · uid=${live.state.uid} · ready=${live.accountReady ? 'yes' : 'no'}` : 'No state loaded'}</p></article>
+            </div>
+          </section>
+        </aside>
+      </section>
+    </div>
+  );
+}
+
 function Dashboard(props:any){const {assets,main,onPick,wallet,watchlist,toggleWatch,positions}=props; const marketCap=assets.reduce((s: number,a:Asset)=>s+(a.marketCap||0),0), volume=assets.reduce((s:number,a:Asset)=>s+(a.volume24h||0),0); return <><section className="topGrid"><div className="hero panel"><div><h1>SoDEX <span>Alpha Terminal</span></h1><p>AI-powered research • real market data • wallet-ready workflows</p><div className="heroStats"><MiniStat label="Research" value="10x"/><MiniStat label="Monitoring" value="24/7"/><MiniStat label="Modules" value="15"/><MiniStat label="Wallet" value={wallet?'ON':'READY'}/></div></div><div className="orb"><span>◇</span></div></div><div className="overview panel"><div className="panelTitle"><b>Market Overview</b><a>Live</a></div><div className="gauge"><div><b>62</b><span>Greed</span></div></div><ul><li><span>BTC Dominance</span><b>54.63%</b><em className="red">-0.21%</em></li><li><span>Total Market Cap</span><b>{usd(marketCap)}</b><em className="green">+1.45%</em></li><li><span>24H Volume</span><b>{usd(volume)}</b><em className="green">+6.21%</em></li></ul></div></section><section className="contentGrid"><div className="leftCol"><MarketTable assets={assets} onPick={onPick} watchlist={watchlist} toggleWatch={toggleWatch}/><Candles active={main}/></div><aside className="rightCol"><Signals assets={assets}/><PortfolioPanel assets={assets} wallet={wallet} positions={positions}/><section className="index panel"><div className="panelTitle"><b>SoSoValue Index Stack</b><a>Indexes</a></div><h3>SSI / MAGI7 <em className="green">active</em></h3><Spark data={[10,12,14,16,19,17,21,25,28,31,29,35,38,41,39,44,49,53]} height={92}/></section></aside></section></>}
 
 function Markets(props:any){const [q,setQ]=useState(''); const [sort,setSort]=useState('marketCap'); const filtered=props.assets.filter((a:Asset)=>(a.symbol+a.name).toLowerCase().includes(q.toLowerCase())).sort((a:Asset,b:Asset)=>sort==='gainers'?b.change24h-a.change24h:sort==='volume'?(b.volume24h||0)-(a.volume24h||0):(b.marketCap||0)-(a.marketCap||0)); return <div className="single"><section className="toolBar panel"><input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search markets"/><select value={sort} onChange={e=>setSort(e.target.value)}><option value="marketCap">Market cap</option><option value="gainers">Top gainers</option><option value="volume">Volume</option></select></section><MarketTable {...props} assets={filtered}/>{props.main&&<Candles active={props.main}/>}</div>}
@@ -786,6 +1169,6 @@ export default function Terminal({initialMenu='Dashboard'}:{initialMenu?:string}
   const disconnect=()=>{setWallet(null); localStorage.removeItem('sodex.wallet.connected')};
   useEffect(()=>{const eth=window.ethereum; if(!eth)return; if(localStorage.getItem('sodex.wallet.connected')) eth.request({method:'eth_accounts'}).then((a:string[])=>a?.[0]&&readWallet(a[0])).catch(()=>{}); const onAcc=(a:string[])=>a?.[0]?readWallet(a[0]):disconnect(); const onChain=()=>wallet?.address&&readWallet(wallet.address); eth.on?.('accountsChanged',onAcc); eth.on?.('chainChanged',onChain); return()=>{eth.removeListener?.('accountsChanged',onAcc); eth.removeListener?.('chainChanged',onChain)}},[readWallet,wallet?.address]);
   const main=active||assets[0]; const marketCap=assets.reduce((s,a)=>s+(a.marketCap||0),0), volume=assets.reduce((s,a)=>s+(a.volume24h||0),0); const props={assets,main,onPick:setActive,wallet,watchlist,toggleWatch,positions,setPositions,alerts,setAlerts,addTrade,overview};
-  const page = activeMenu==='Launch'||activeMenu==='Dashboard'?<LaunchPanel {...props}/>:activeMenu==='Judges'?<JudgesPanel {...props}/>:activeMenu==='Execution'?<ExecutionDesk {...props}/>:activeMenu==='Markets'?<Markets {...props}/>:activeMenu==='Watchlist'?<Watchlist {...props}/>:activeMenu==='Alpha Signals'?<AlphaSignals {...props}/>:activeMenu==='Screener'?<Screener {...props}/>:activeMenu==='Heatmap'?<Heatmap {...props}/>:activeMenu==='Portfolio'?<PortfolioPage {...props}/>:activeMenu==='Paper Trading'?<PaperTrading {...props}/>:activeMenu==='Alerts'?<Alerts {...props}/>:activeMenu==='Diag'?<DiagPanel {...props}/>:activeMenu==='AI Research'||activeMenu==='News & Insights'?<ResearchPanel {...props}/>:['SoSoValue Indexes','On-Chain','Leaderboard','Settings'].includes(activeMenu)?<SimpleModule title={activeMenu} assets={assets}/>:main?<LaunchPanel {...props}/>:null;
+  const page = activeMenu==='Launch'||activeMenu==='Dashboard'?<LaunchPanel {...props}/>:activeMenu==='Judges'?<JudgesPanel {...props}/>:activeMenu==='Execution'?<ExecutionDesk {...props}/>:activeMenu==='Markets'?<Markets {...props}/>:activeMenu==='Watchlist'?<Watchlist {...props}/>:activeMenu==='Alpha Signals'?<AlphaSignals {...props}/>:activeMenu==='Screener'?<Screener {...props}/>:activeMenu==='Heatmap'?<Heatmap {...props}/>:activeMenu==='Portfolio'?<PortfolioPage {...props}/>:activeMenu==='Portfolio Live'?<PortfolioLivePage {...props}/>:activeMenu==='Paper Trading'?<PaperTrading {...props}/>:activeMenu==='Alerts'?<Alerts {...props}/>:activeMenu==='Diag'?<DiagPanel {...props}/>:activeMenu==='AI Research'?<ResearchPanel {...props}/>:activeMenu==='News & Insights'?<NewsFeedPanel />:['SoSoValue Indexes','On-Chain','Leaderboard','Settings'].includes(activeMenu)?<SimpleModule title={activeMenu} assets={assets}/>:main?<LaunchPanel {...props}/>:null;
   return <main className="app"><aside className="sidebar"><div className="logo brandLogo"><img src="/sodex-logo.jpg" alt="SoDEX logo"/><p><b>SoDEX</b><span>ALPHA TERMINAL</span></p></div><nav>{nav.map((n,i)=><a key={n} href={pathOf(n)} onClick={(e)=>{e.preventDefault(); window.history.pushState(null,'',pathOf(n)); setActiveMenu(n)}} className={activeMenu===n?'active':''}><span>{navIcons[i]}</span>{n}{n==='Alpha Signals'&&<em>LIVE</em>}</a>)}</nav><div className="community"><small>OFFICIAL & COMMUNITY</small>{official.slice(0,4).map(([l,h])=><a key={l} href={h} target="_blank">{l}<span>↗</span></a>)}</div></aside><section className="desk"><header className="playerBar compactBar"><div className="theme launchTheme"><div className="disc">◎</div><p><b>SoSoValue Launch Rail</b><span>Research, execution, diagnostics in one desk</span></p></div><div className="actions"><button className="bell" onClick={loadMarket}>{loading?'↻':'⟳'}</button>{wallet?<button onClick={disconnect} className="wallet">{short(wallet.address)} · Disconnect</button>:<button onClick={connect} className="wallet">Connect Wallet</button>}<button className="sun">✦</button></div></header>{walletError&&<div className="walletError">{walletError}</div>}<div className="ticker">{assets.map(a=><button key={a.symbol} onClick={()=>setActive(a)}><b>{a.symbol}</b><span>{usd(a.price)}</span><em className={a.change24h>=0?'green':'red'}>{pct(a.change24h)}</em></button>)}<button><span>Market Cap</span><b>{usd(overview?.totalMarketCap ?? marketCap)}</b><em>{overview?.leaders?.[0] || 'live'}</em></button><button><span>24H Vol</span><b>{usd(overview?.totalVolume24h ?? volume)}</b><em>{overview?.breadthPct ? `${Math.round(overview.breadthPct)}% green` : 'live'}</em></button><button><span>BTC.D</span><b>{overview?.btcDominance ? `${overview.btcDominance.toFixed(2)}%` : '—'}</b><em>{overview?.leaders?.slice(0,2).join(' · ') || 'SoSoValue'}</em></button></div>{page}</section></main>
 }
