@@ -124,6 +124,18 @@ function matchesSymbol(row: AnyRecord, sodexSymbol: string, symbol: string) {
   return normalized.includes(normalizeSymbol(sodexSymbol)) || normalized.includes(normalizeSymbol(symbol));
 }
 
+function findTickerRow(rows: AnyRecord[], sodexSymbol: string, symbol: string) {
+  const exact = rows.find((row) => {
+    const candidates = [
+      pickString(row, ['symbol', 's', 'symbolName', 'market', 'name', 'pair']),
+      pickString(row, ['baseAsset', 'baseCoin', 'base', 'coin'])
+    ].filter(Boolean);
+    return candidates.some((value) => normalizeSymbol(value) === normalizeSymbol(sodexSymbol));
+  });
+  if (exact) return exact;
+  return rows.find((row) => matchesSymbol(row, sodexSymbol, symbol));
+}
+
 function toCandlePoints(rows: AnyRecord[]) {
   return rows
     .map((row) => ({
@@ -292,7 +304,7 @@ function indexFromVenue(item: (typeof INDEXES)[number], tickerRow: AnyRecord | u
 export async function getMarket(): Promise<{ assets: Asset[]; overview: MarketOverview }> {
   const [tickers, currencyMap] = await Promise.all([getSodexTickers(), getSosoCurrencyDirectory()]);
   const assetPackets = await Promise.all(WATCHLIST.map(async (item) => {
-    const tickerRow = tickers.find((row) => matchesSymbol(row, item.sodex, item.symbol));
+    const tickerRow = findTickerRow(tickers, item.sodex, item.symbol);
     const sosoCurrencyId = currencyMap.get(item.symbol.toUpperCase()) || '';
     const [chart, snapshot] = await Promise.all([
       getSodexKlines(item.sodex, 36),
@@ -302,7 +314,7 @@ export async function getMarket(): Promise<{ assets: Asset[]; overview: MarketOv
   }));
 
   const indexPackets = await Promise.all(INDEXES.map(async (item) => {
-    const tickerRow = tickers.find((row) => matchesSymbol(row, item.sodex, item.symbol));
+    const tickerRow = findTickerRow(tickers, item.sodex, item.symbol);
     const [snapshot, chart] = await Promise.all([
       getSosoIndexSnapshot(item.sosoIndex).catch(() => null),
       getSodexKlines(item.sodex, 36).catch(() => [])
