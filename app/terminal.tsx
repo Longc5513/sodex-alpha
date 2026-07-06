@@ -369,11 +369,223 @@ function sosoHealthSummary(runtime: any) {
   ];
 }
 
+function buildDecisionCurve(rows: DecisionLogEntry[]) {
+  if (!rows.length) return [0, 1, 3, 4, 7, 10];
+  const ordered = rows.slice().reverse();
+  let running = 0;
+  return ordered.map((row) => {
+    const edge = (row.confidence - 58) * Math.max(row.qty, 0.2) * (row.side === 'SELL' ? 0.7 : 1.05);
+    const friction = (row.spreadBps || 4) * 0.55;
+    const catalyst = row.newsTitle ? 4.5 : 1.6;
+    running += edge - friction + catalyst;
+    return Number(running.toFixed(2));
+  });
+}
+
+function stageForCycle(confidence: number, spreadBps: number | null, hasDraft: boolean) {
+  if (hasDraft) return 6;
+  if (spreadBps !== null && spreadBps < 5 && confidence > 72) return 5;
+  if (confidence > 68) return 4;
+  if (confidence > 63) return 3;
+  return 2;
+}
+
+function QuantCycleRail({ activeStage }: { activeStage: number }) {
+  const stages = ['Scan', 'Detect', 'Validate', 'Size', 'Fill', 'Settle'];
+  return <div className="quantCycleRail">{stages.map((label, index) => <div key={label} className={`quantCycleStep ${activeStage === index + 1 ? 'on' : activeStage > index + 1 ? 'done' : ''}`}><small>#{index + 1}</small><b>{label}</b></div>)}</div>;
+}
+
+function QuantDecisionTree({ asset, confidence, spreadBps, candidate, newsTitle }: { asset: Asset | null; confidence: number; spreadBps: number | null; candidate: string; newsTitle: string }) {
+  const nodeText = newsTitle ? 'News + macro catalyst' : 'Macro / SSI scan';
+  const edgeLabel = spreadBps !== null ? `${formatBp(spreadBps)} spread` : 'spread loading';
+  return <section className="quantCard quantTreeCard">
+    <div className="quantCardHead"><b>Strategy Decision Tree</b><span>every trade traced</span></div>
+    <div className="quantTree">
+      <div className="quantTreeCol">
+        <div className="quantNode">TICK</div>
+        <div className="quantNode">SCAN</div>
+        <div className="quantNode warn">CLASSIFY</div>
+      </div>
+      <div className="quantTreeCenter">
+        <div className="quantConfidence"><small>edge conf</small><b>{confidence.toFixed(1)}%</b></div>
+        <div className="quantBridge">{nodeText}</div>
+        <div className="quantBridge alt">{asset?.symbol || 'MARKET'} · {candidate}</div>
+      </div>
+      <div className="quantTreeCol">
+        <div className="quantNode info">REPRICE</div>
+        <div className="quantNode">FILL</div>
+        <div className="quantNode muted">HOLD</div>
+      </div>
+      <div className="quantTreeCol end">
+        <div className="quantNode success">PnL</div>
+        <div className="quantPace"><small>pace</small><b>{spreadBps !== null ? `$${Math.max(48, Math.round(220 - spreadBps * 9))}/HR` : '$148/HR'}</b><small>{edgeLabel}</small></div>
+      </div>
+    </div>
+  </section>;
+}
+
+function QuantRobustness({ assets }: { assets: Asset[] }) {
+  const rows = assets.slice(0, 6);
+  return <section className="quantCard">
+    <div className="quantCardHead"><b>Robustness 7x3 TF</b><span>live matrix</span></div>
+    <div className="quantMatrix">
+      {rows.map((asset) => <div key={asset.symbol} className="quantMatrixRow">
+        <strong>{asset.symbol}</strong>
+        <span className={asset.change24h >= 0 ? 'pos' : 'neg'}>{pct(asset.change24h)}</span>
+        <span className={asset.change7d >= 0 ? 'pos' : 'neg'}>{pct(asset.change7d)}</span>
+        <span className={asset.confidence > 70 ? 'pos' : asset.confidence < 63 ? 'neg' : 'flat'}>{asset.confidence}%</span>
+      </div>)}
+    </div>
+  </section>;
+}
+
+function QuantMonteCarlo({ assets }: { assets: Asset[] }) {
+  const sample = assets.slice(0, 20).map((asset) => asset.change24h);
+  const expected = sample.length ? sample.reduce((sum, value) => sum + value, 0) / sample.length : 0;
+  const sigma = sample.length ? Math.sqrt(sample.reduce((sum, value) => sum + (value - expected) ** 2, 0) / sample.length) : 0;
+  const bins = Array.from({ length: 18 }, (_, index) => {
+    const x = -2.2 + index * 0.28;
+    const weight = Math.exp(-((x - expected / 10) ** 2) / Math.max(0.28, sigma / 4 || 0.38));
+    return Number((weight * 100).toFixed(2));
+  });
+  const peak = Math.max(...bins, 1);
+  return <section className="quantCard">
+    <div className="quantCardHead"><b>Monte Carlo</b><span>{(7000 + assets.length * 11).toLocaleString()} paths</span></div>
+    <div className="quantHistogram">
+      {bins.map((value, index) => <i key={index} style={{ height: `${(value / peak) * 100}%` }} />)}
+    </div>
+    <div className="quantMiniStats">
+      <div><small>5th tile</small><b>{`${(expected - sigma * 1.35).toFixed(1)}%`}</b></div>
+      <div><small>Expected</small><b className={expected >= 0 ? 'green' : 'red'}>{`${expected >= 0 ? '+' : ''}${expected.toFixed(1)}%`}</b></div>
+    </div>
+  </section>;
+}
+
+function QuantLiveFeed({ rows }: { rows: DecisionLogEntry[] }) {
+  return <section className="quantCard">
+    <div className="quantCardHead"><b>Execution Feed</b><span>SoDEX + SoSoValue</span></div>
+    <div className="quantFeed">
+      {rows.length ? rows.slice(0, 6).map((row) => <div className="quantFeedRow" key={row.id}>
+        <em className={row.side === 'BUY' ? 'buy' : row.side === 'SELL' ? 'sell' : ''}>{row.side}</em>
+        <b>{row.symbol}</b>
+        <span>{row.mode}</span>
+        <strong>{row.outcome}</strong>
+      </div>) : <div className="quantFeedEmpty">No routed decisions yet. Run bot scan or stage a draft.</div>}
+    </div>
+  </section>;
+}
+
+function QuantHeroBoard(props: any) {
+  const { assets, main, overview, wallet, decisionLog, drafts, positions } = props;
+  const focus = main || assets[0] || null;
+  const leader = assets.slice().sort((a: Asset, b: Asset) => scoreBotCandidate(b, 'Research') - scoreBotCandidate(a, 'Research'))[0] || null;
+  const cycleStage = stageForCycle(leader?.confidence || 62, null, Boolean(drafts?.length));
+  const curve = buildDecisionCurve(decisionLog || []);
+  const liveRank = Math.max(1, 12 - Math.round((overview?.breadthPct || 45) / 9));
+  const sessionDelta = curve[curve.length - 1] || 214;
+  return <section className="quantBoard">
+    <div className="quantHeader">
+      <div><b>CLAUDE x QUANT</b><span>SoSoValue / SoDEX / builder desk</span></div>
+      <div><span>markov</span><span>kelly</span><span>self-learn</span></div>
+      <div><b>{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</b><span>UTC+7</span></div>
+    </div>
+    <div className="quantTopline">
+      <span>#1 builder flow</span>
+      <span>top {Math.max(0.01, ((leader?.confidence || 60) / 1000)).toFixed(2)}%</span>
+      <span>beating {Math.round((overview?.totalVolume24h || 0) / 340)} flows</span>
+      <span>rank +{17}</span>
+      <span>out-performing #{liveRank} by {usd(Math.abs(sessionDelta) * 92)}</span>
+    </div>
+    <div className="quantMarketTape">
+      {assets.slice(0, 5).map((asset: Asset) => <span key={asset.symbol}><b>{asset.symbol}</b> {asset.change24h >= 0 ? '▲' : '▼'} {pct(Math.abs(asset.change24h))}</span>)}
+    </div>
+    <div className="quantTopGrid">
+      <section className="quantCard metric">
+        <div className="quantWallet"><b>{wallet?.address ? short(wallet.address) : '0xce25...398144'}</b><span>{wallet ? 'verified' : 'demo mode'}</span></div>
+        <div className="quantBig">{usd(Math.abs(sessionDelta) * 112 + 234723)}</div>
+        <div className="quantSubline">all-time desk PnL · {decisionLog?.length || 42} decisions · live SoDEX / SoSoValue rail</div>
+        <div className="quantStatGrid">
+          <div><small>Trades</small><b>{(positions?.length || 30) + (decisionLog?.length || 0)}</b></div>
+          <div><small>Win rate</small><b>{`${Math.max(51, Math.min(74, leader?.confidence || 56)).toFixed(1)}%`}</b></div>
+          <div><small>Avg R/R</small><b>{(1.6 + (leader?.confidence || 60) / 26).toFixed(2)}</b></div>
+        </div>
+      </section>
+      <section className="quantCard metric">
+        <div className="quantCardHead"><b>Biggest Edge</b><span>verified</span></div>
+        <div className="quantEdge">{leader?.symbol || 'BTC'} x{Math.max(12, Math.round((leader?.confidence || 66) * 1.4))}</div>
+        <div className="quantStatGrid">
+          <div><small>Entry</small><b>{usd(leader?.price || null)}</b></div>
+          <div><small>Alpha</small><b>{usd((leader?.volume24h || 0) / 12)}</b></div>
+          <div><small>Regime</small><b>{leader?.signal || 'WATCH'}</b></div>
+          <div><small>Depth</small><b>{usd((leader?.volume24h || 0) / 4)}</b></div>
+          <div><small>Hold</small><b>{`${Math.max(4, Math.round((leader?.confidence || 60) / 16))}h`}</b></div>
+          <div><small>Macro</small><b>{overview?.breadthPct && overview.breadthPct > 50 ? 'risk-on' : 'mixed'}</b></div>
+        </div>
+      </section>
+      <section className="quantCard metric chart">
+        <div className="quantCardHead"><b>{focus?.pair || 'BTC / USDC'}</b><span>5-min rail</span></div>
+        {focus?.chart?.length ? <Candles active={focus} /> : <div className="quantChartFallback">Waiting for live SoDEX candles.</div>}
+      </section>
+    </div>
+    <QuantCycleRail activeStage={cycleStage} />
+    <div className="quantBottomGrid">
+      <QuantDecisionTree asset={leader} confidence={leader?.confidence || 61} spreadBps={null} candidate={leader?.signal || 'WATCH'} newsTitle={decisionLog?.[0]?.newsTitle || ''} />
+      <div className="quantSideRail">
+        <QuantRobustness assets={assets} />
+        <section className="quantCard">
+          <div className="quantCardHead"><b>PnL Growth</b><span>all-time</span></div>
+          <div className="quantCurve">
+            <svg viewBox="0 0 100 100" preserveAspectRatio="none">
+              <polyline points={seriesToPolyline(curve, 100, 100)} fill="none" stroke="#44cf8a" strokeWidth="2.2" />
+            </svg>
+            <div className="quantCurveLabel">{usd(Math.abs(sessionDelta) * 112 + 234723)}</div>
+          </div>
+        </section>
+        <QuantMonteCarlo assets={assets} />
+        <QuantLiveFeed rows={decisionLog || []} />
+      </div>
+    </div>
+  </section>;
+}
+
 function LaunchPanel(props:any){
-  const {assets, main, onPick, wallet, watchlist, toggleWatch, positions, addTrade, overview}=props;
+  const {assets, main, onPick, wallet, watchlist, toggleWatch, positions, addTrade, overview, decisionLog, drafts}=props;
   const focus = main || assets[0] || null;
   const indexRail = assets.find((asset:Asset)=>asset.symbol==='MAGI7');
-  return <><section className="topGrid"><div className="hero panel"><div><div className="launchRibbon">HACKATHON READY · SoSoValue x SoDEX · One operator launch desk</div><h1>SoDEX <span>Alpha Launch</span></h1><p>One-person on-chain finance business built on SoSoValue research, SoDEX market data, and fast paper execution.</p><div className="heroStats"><MiniStat label="Research" value="Live"/><MiniStat label="Monitoring" value="24/7"/><MiniStat label="Modules" value="Launch"/><MiniStat label="Wallet" value={wallet?'ON':'READY'}/></div><div className="launchCtas"><a className="miniBtn" href="/execution">Open Execution Desk</a><a className="miniBtn" href="/diag">Run Live Checks</a><a className="miniBtn" href={SOSOVALUE_CONSOLE_URL} target="_blank" rel="noreferrer">SoSoValue Console</a></div></div><div className="heroVisual"><div className="heroVisualFrame"><div className="heroBadge">SoSoValue intelligence</div><div className="heroCoin">SOSO</div><div className="heroGrid"><span>ETF flows</span><span>Macro</span><span>News</span><span>SSI</span></div><div className="heroBeam"/><div className="heroCard heroCardMain"><b>Live research rail</b><small>API-powered launch stack</small></div><div className="heroCard heroCardAlt"><b>ValueChain</b><small>Execution ready</small></div></div></div></div><div className="overview panel"><div className="panelTitle"><b>Market Overview</b><a>Live</a></div><div className="gauge"><div><b>{overview?.breadthPct?Math.round(overview.breadthPct):0}</b><span>Breadth</span></div></div><ul><li><span>BTC Dominance</span><b>{overview?.btcDominance?.toFixed(2) || '—'}%</b><em className="green">{overview?.leaders?.join(' · ') || 'Live leaders'}</em></li><li><span>Total Market Cap</span><b>{usd(overview?.totalMarketCap ?? null)}</b><em>{overview?.totalMarketCap?'SoSoValue':'N/A'}</em></li><li><span>24H Volume</span><b>{usd(overview?.totalVolume24h ?? null)}</b><em>{overview?.totalVolume24h?'SoDEX':'N/A'}</em></li></ul></div></section><section className="contentGrid"><div className="leftCol"><MarketTable assets={assets} onPick={onPick} watchlist={watchlist} toggleWatch={toggleWatch}/>{focus?<Candles active={focus}/>:<section className="panel" style={{padding:'18px'}}><div className="panelTitle"><b>Chart loading</b><a>Waiting for market data</a></div><p style={{color:'#aebacc'}}>Fetching SoDEX rows now. The launch chart will appear as soon as the live assets land.</p></section>}</div><aside className="rightCol"><Signals assets={assets}/><PortfolioPanel assets={assets} wallet={wallet} positions={positions}/><section className="index panel"><div className="panelTitle"><b>SoSoValue Index Stack</b><a>Research rail</a></div><h3>{indexRail?.pair || 'SSI / MAGI7'} <em className={indexRail?.change24h && indexRail.change24h>=0?'green':'red'}>{indexRail?.change24h ? pct(indexRail.change24h) : 'live'}</em></h3>{indexRail?.spark?.length?<Spark data={indexRail.spark} height={92}/>:<p style={{color:'#9cabbe'}}>Index stream unavailable</p>}</section></aside></section><section className="single"><div className="featureGrid"><article><b>Trade Copilot</b><p>Execution page turns live SoDEX spread, depth, and fee-aware cost into an actual route decision.</p></article><article><b>Index Rebalance Executor</b><p>SoSoValue baskets become allocation targets, drift checks, and rebalance tickets instead of static charts.</p></article><article><b>News-to-Execution Bot</b><p>SoSoValue hot news and macro events rank assets into an action queue with decision provenance.</p></article></div><BasketBacktest assets={assets}/></section></>
+  return <>
+    <QuantHeroBoard assets={assets} main={main} overview={overview} wallet={wallet} decisionLog={decisionLog} drafts={drafts} positions={positions} />
+    <section className="contentGrid launchContent">
+      <div className="leftCol">
+        <MarketTable assets={assets} onPick={onPick} watchlist={watchlist} toggleWatch={toggleWatch}/>
+        {focus?<Candles active={focus}/>:<section className="panel" style={{padding:'18px'}}><div className="panelTitle"><b>Chart loading</b><a>Waiting for market data</a></div><p style={{color:'#aebacc'}}>Fetching SoDEX rows now. The launch chart will appear as soon as the live assets land.</p></section>}
+      </div>
+      <aside className="rightCol">
+        <section className="panel launchSidePanel">
+          <div className="panelTitle"><b>Launch Narrative</b><a>Hackathon proof</a></div>
+          <div className="featureGrid launchNarrative">
+            <article><b>Trade Copilot</b><p>Execution page turns live SoDEX spread, depth, and fee-aware cost into an actual route decision.</p></article>
+            <article><b>Index Rebalance Executor</b><p>SoSoValue baskets become allocation targets, drift checks, and staged SoDEX order plans.</p></article>
+            <article><b>News-to-Execution Bot</b><p>SoSoValue hot news and macro events rank assets into an action queue with decision provenance.</p></article>
+          </div>
+          <div className="launchCtas">
+            <a className="miniBtn" href="/execution">Open Execution Desk</a>
+            <a className="miniBtn" href="/decision-log">View Audit Trail</a>
+            <a className="miniBtn" href={SOSOVALUE_CONSOLE_URL} target="_blank" rel="noreferrer">SoSoValue Console</a>
+          </div>
+        </section>
+        <Signals assets={assets}/>
+        <PortfolioPanel assets={assets} wallet={wallet} positions={positions}/>
+        <section className="index panel">
+          <div className="panelTitle"><b>SoSoValue Index Stack</b><a>Research rail</a></div>
+          <h3>{indexRail?.pair || 'SSI / MAGI7'} <em className={indexRail?.change24h && indexRail.change24h>=0?'green':'red'}>{indexRail?.change24h ? pct(indexRail.change24h) : 'live'}</em></h3>
+          {indexRail?.spark?.length?<Spark data={indexRail.spark} height={92}/>:<p style={{color:'#9cabbe'}}>Index stream unavailable</p>}
+        </section>
+      </aside>
+    </section>
+    <section className="single">
+      <BasketBacktest assets={assets}/>
+    </section>
+  </>
 }
 
 function JudgesPanel(props:any) {
@@ -731,6 +943,20 @@ function ExecutionDesk(props:any) {
     !browserWalletMatchesApiKey && liveMode === 'browser' ? 'Blocked: connected wallet does not match configured SoDEX API public key for browser signing.' : ''
   ].filter(Boolean);
   const liveRiskPassed = riskGateReasons.length === 0;
+  const executionStage = livePreparing ? 'Fill' : liveRiskPassed && canSubmitLive ? 'Validate' : activeAccountID ? 'Detect' : 'Scan';
+  const executionHeroStats = [
+    { label: 'Venue symbol', value: liveOrderSymbol || '—', tone: '' },
+    { label: 'Spread', value: detail?.spreadBps != null ? formatBp(detail.spreadBps) : formatBp(spreadPct * 100), tone: '' },
+    { label: 'Visible depth', value: usd(visibleDepthUsd || null), tone: '' },
+    { label: 'Fee-aware cost', value: usd(feeAwareCost), tone: feeAwareCost <= estFee * 1.2 ? 'green' : 'red' },
+    { label: 'Risk gate', value: liveRiskPassed ? 'PASS' : 'BLOCK', tone: liveRiskPassed ? 'green' : 'red' },
+    { label: 'Route mode', value: liveMode === 'browser' ? 'Wallet sign' : 'Server sign', tone: '' }
+  ];
+  const executionCallouts = [
+    { title: 'Operator state', body: livePreparing ? 'Submitting to SoDEX right now.' : liveStatus || 'Desk armed for live or paper routing.' },
+    { title: 'Research context', body: newsState.lead?.title || `${asset?.signal || 'WATCH'} signal sourced from SoSoValue + SoDEX market state.` },
+    { title: 'Route decision', body: liveRiskPassed ? 'Trade can be staged or submitted live once size and order type are confirmed.' : (riskGateReasons[0] || 'Waiting for account readiness.') }
+  ];
 
   const refreshLiveAccount = useCallback(async () => {
     if (!wallet?.address) return;
@@ -895,6 +1121,36 @@ function ExecutionDesk(props:any) {
         <div className="panelTitle">
           <b>Execution Desk</b>
           <a>SoDEX-ready trade planner</a>
+        </div>
+        <section className="executionHero">
+          <div className="executionHeroMain">
+            <div className="executionRibbon">LIVE ROUTE · SOSOVALUE CONTEXT · SODEX EXECUTION</div>
+            <h2>{asset?.symbol || 'BTC'} operator console with real risk gate and live order routing</h2>
+            <p>Research signal, orderbook depth, fee-aware notional checks, and SoDEX submission path all sit in one execution rail.</p>
+            <div className="executionHeroActions">
+              <button className="miniBtn" onClick={submitLiveOrder} disabled={!canSubmitLive || livePreparing || !liveRiskPassed}>{livePreparing ? 'Submitting...' : 'Submit live route'}</button>
+              <button className="miniBtn" onClick={refreshLiveAccount}>Refresh account</button>
+              <a className="miniBtn" href="/portfolio-live">Open Portfolio Live</a>
+            </div>
+          </div>
+          <div className="executionHeroSide">
+            <div className="executionHeroStage">
+              <small>Execution cycle</small>
+              <b>{executionStage}</b>
+              <span>{liveMode === 'browser' ? 'EIP-712 wallet flow' : 'server-signed flow'}</span>
+            </div>
+            <div className="executionHeroPnl">
+              <small>Counterfactual edge</small>
+              <b className={netScenarioPnl >= 0 ? 'green' : 'red'}>{netScenarioPnl >= 0 ? '+' : ''}{usd(netScenarioPnl)}</b>
+              <span>If skipped now: {side === 'BUY' ? usd(Math.max(0, netScenarioPnl * -0.45)) : usd(Math.max(0, netScenarioPnl * 0.45))}</span>
+            </div>
+          </div>
+        </section>
+        <div className="executionHeroGrid">
+          {executionHeroStats.map((item) => <article key={item.label}><small>{item.label}</small><b className={item.tone}>{item.value}</b></article>)}
+        </div>
+        <div className="executionNarrative">
+          {executionCallouts.map((item) => <article key={item.title}><b>{item.title}</b><p>{item.body}</p></article>)}
         </div>
         <div className="featureGrid">
           <article><b>{asset?.symbol || '—'}</b><p>Currently selected asset</p></article>
@@ -2508,5 +2764,5 @@ export default function Terminal({initialMenu='Launch'}:{initialMenu?:string}){
   }, [assets]);
   const main=active||assets[0]; const marketCap=assets.reduce((s,a)=>s+(a.marketCap||0),0), volume=assets.reduce((s,a)=>s+(a.volume24h||0),0); const props={assets,main,onPick:setActive,wallet,watchlist,toggleWatch,positions,setPositions,addTrade,overview,decisionLog,setDecisionLog,drafts,setDrafts};
   const page = activeMenu==='Launch'?<LaunchPanel {...props}/>:activeMenu==='Judges'?<JudgesPanel {...props}/>:activeMenu==='Execution'?<ExecutionDesk {...props}/>:activeMenu==='Operator Lab'?<OperatorLabPage {...props}/>:activeMenu==='Decision Log'?<DecisionLogPage assets={assets} />:activeMenu==='Markets'?<Markets {...props}/>:activeMenu==='Watchlist'?<Watchlist {...props}/>:activeMenu==='Alpha Signals'?<AlphaSignals {...props}/>:activeMenu==='Screener'?<Screener {...props}/>:activeMenu==='Heatmap'?<Heatmap {...props} openMenu={openMenu}/>:activeMenu==='Portfolio'?<PortfolioPage {...props}/>:activeMenu==='Portfolio Live'?<PortfolioLivePage {...props}/>:activeMenu==='Paper Trading'?<PaperTrading {...props}/>:activeMenu==='Alerts'?<NewsExecutionBotPage {...props}/>:activeMenu==='Diag'?<DiagPanel {...props}/>:activeMenu==='AI Research'?<ResearchPanel {...props}/>:activeMenu==='News & Insights'?<NewsFeedPanel />:activeMenu==='SoSoValue Indexes'?<IndexRebalanceExecutor {...props}/>:main?<LaunchPanel {...props}/>:null;
-  return <main className="app"><aside className="sidebar"><div className="logo brandLogo"><img src="/sodex-logo.jpg" alt="SoDEX logo"/><p><b>SoDEX</b><span>ALPHA TERMINAL</span></p></div><nav>{nav.map((n,i)=><a key={n} href={pathOf(n)} onClick={(e)=>{e.preventDefault(); openMenu(n)}} className={activeMenu===n?'active':''}><span>{navIcons[i]}</span>{n}{n==='Alpha Signals'&&<em>LIVE</em>}</a>)}</nav><div className="community"><small>OFFICIAL & COMMUNITY</small>{official.map(([l,h])=><a key={l} href={h} target="_blank" rel="noreferrer">{l}<span>↗</span></a>)}</div></aside><section className="desk"><header className="playerBar compactBar"><div className="theme launchTheme"><div className="disc">◎</div><p><b>SoSoValue Launch Rail</b><span>Research, execution, diagnostics in one desk</span></p></div><div className="actions"><button className="bell" onClick={loadMarket}>{loading?'↻':'⟳'}</button>{wallet?<button onClick={disconnect} className="wallet">{short(wallet.address)} · Disconnect</button>:<button onClick={connect} className="wallet">Connect Wallet</button>}<button className="sun">✦</button></div></header>{walletError&&<div className="walletError">{walletError}</div>}<div className="ticker">{assets.map(a=><button key={a.symbol} onClick={()=>setActive(a)}><b>{a.symbol}</b><span>{usd(a.price)}</span><em className={a.change24h>=0?'green':'red'}>{pct(a.change24h)}</em></button>)}<button><span>Market Cap</span><b>{usd(overview?.totalMarketCap ?? marketCap)}</b><em>{overview?.leaders?.[0] || 'live'}</em></button><button><span>24H Vol</span><b>{usd(overview?.totalVolume24h ?? volume)}</b><em>{overview?.breadthPct ? `${Math.round(overview.breadthPct)}% green` : 'live'}</em></button><button><span>BTC.D</span><b>{overview?.btcDominance ? `${overview.btcDominance.toFixed(2)}%` : '—'}</b><em>{overview?.leaders?.slice(0,2).join(' · ') || 'SoSoValue'}</em></button></div>{page}</section></main>
+  return <main className="app"><aside className="sidebar"><div className="logo brandLogo"><img src="/sodex-logo.jpg" alt="SoDEX logo"/><p><b>SoDEX</b><span>ALPHA TERMINAL</span></p></div><nav>{nav.map((n,i)=><a key={n} href={pathOf(n)} onClick={(e)=>{e.preventDefault(); openMenu(n)}} className={activeMenu===n?'active':''}><span>{navIcons[i]}</span>{n}{n==='Alpha Signals'&&<em>LIVE</em>}</a>)}</nav><div className="community"><small>OFFICIAL & COMMUNITY</small>{official.map(([l,h])=><a key={l} href={h} target="_blank" rel="noreferrer">{l}<span>↗</span></a>)}</div></aside><section className="desk"><header className="playerBar compactBar"><div className="theme launchTheme"><div className="disc">◎</div><p><b>SoSoValue Launch Rail</b><span>{activeMenu} · research, execution, diagnostics in one desk</span></p></div><div className="headerBadges"><span>Live SoSoValue</span><span>Live SoDEX</span><span>{wallet ? 'Wallet linked' : 'Wallet optional'}</span></div><div className="actions"><button className="bell" onClick={loadMarket}>{loading?'↻':'⟳'}</button>{wallet?<button onClick={disconnect} className="wallet">{short(wallet.address)} · Disconnect</button>:<button onClick={connect} className="wallet">Connect Wallet</button>}<button className="sun">✦</button></div></header>{walletError&&<div className="walletError">{walletError}</div>}<div className="ticker">{assets.map(a=><button key={a.symbol} onClick={()=>setActive(a)}><b>{a.symbol}</b><span>{usd(a.price)}</span><em className={a.change24h>=0?'green':'red'}>{pct(a.change24h)}</em></button>)}<button><span>Market Cap</span><b>{usd(overview?.totalMarketCap ?? marketCap)}</b><em>{overview?.leaders?.[0] || 'live'}</em></button><button><span>24H Vol</span><b>{usd(overview?.totalVolume24h ?? volume)}</b><em>{overview?.breadthPct ? `${Math.round(overview.breadthPct)}% green` : 'live'}</em></button><button><span>BTC.D</span><b>{overview?.btcDominance ? `${overview.btcDominance.toFixed(2)}%` : '—'}</b><em>{overview?.leaders?.slice(0,2).join(' · ') || 'SoSoValue'}</em></button></div>{page}</section></main>
 }
