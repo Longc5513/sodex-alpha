@@ -1,4 +1,4 @@
-import { createHmac, randomUUID } from 'crypto';
+import { createHmac } from 'crypto';
 
 type AnyRecord = Record<string, any>;
 
@@ -354,6 +354,22 @@ function compactPayloadHash(actionType: string, params: AnyRecord) {
   return asHex(keccak256(compactJson({ type: actionType, params })));
 }
 
+function deterministicClOrdID(input: SpotOrderInput) {
+  const seed = compactJson({
+    walletAddress: input.walletAddress.toLowerCase(),
+    accountID: input.accountID,
+    symbol: input.symbol,
+    side: input.side,
+    type: input.type,
+    quantity: input.quantity || '',
+    funds: input.funds || '',
+    price: input.price || '',
+    timeInForce: input.timeInForce ?? 3,
+    reduceOnly: Boolean(input.reduceOnly)
+  });
+  return `launch-${Buffer.from(keccak256(seed)).toString('hex').slice(0, 16)}`;
+}
+
 function toSideCode(side: 'BUY' | 'SELL') {
   return side === 'BUY' ? 1 : 2;
 }
@@ -365,7 +381,7 @@ function toDisplayNumber(value: any) {
 
 function buildSpotBatchParams(input: SpotOrderInput, symbolID: number) {
   const order: AnyRecord = {
-    clOrdID: input.clientOrderId || `launch-${randomUUID().slice(0, 8)}`,
+    clOrdID: input.clientOrderId || deterministicClOrdID(input),
     modifier: 1,
     side: toSideCode(input.side),
     type: input.type === 'MARKET' ? 1 : 2,
@@ -554,7 +570,8 @@ export async function getPortfolioLive(address: string, accountID?: string, symb
     feeRate: unwrap(feeRateRaw),
     apiKeys: Array.isArray(unwrap(apiKeysRaw)) ? unwrap(apiKeysRaw) : [],
     accountReady: Number(state.aid || 0) > 0 && String(state.user || '').toLowerCase() !== SODEX_VERIFYING_CONTRACT,
-    serverSignerLoaded: Boolean(SODEX_API_PRIVATE_KEY && SODEX_API_KEY_NAME)
+    serverSignerLoaded: Boolean(SODEX_API_PRIVATE_KEY && SODEX_API_KEY_NAME),
+    configuredApiPublicKey: SODEX_API_PUBLIC_KEY
   };
 }
 

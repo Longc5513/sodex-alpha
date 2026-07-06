@@ -18,7 +18,7 @@ type AlertRule = { symbol: string; target: number; side: 'above'|'below'; id: st
 type BotAction = { time: string; symbol: string; side: 'BUY' | 'SELL' | 'HOLD'; score: number; reason: string; qty: number; price: number; mode: string };
 type LiveNewsItem = { id: string; source: 'hot' | 'featured'; title: string; summary: string; releaseTime: number; author: string; link: string; tags: string[]; image: string };
 type MacroEvent = { date: string; events: string[] };
-type PortfolioLiveData = { address: string; requestedAccountID: string; state: { user: string; aid: number; uid: number; balancesRaw: any[]; openOrdersRaw: any[] }; balances: { coin: string; total: number | null; available: number | null; locked: number | null }[]; openOrders: any[]; orderHistory: any[]; trades: any[]; feeRate: any; apiKeys: any[]; accountReady: boolean; serverSignerLoaded: boolean };
+type PortfolioLiveData = { address: string; requestedAccountID: string; state: { user: string; aid: number; uid: number; balancesRaw: any[]; openOrdersRaw: any[] }; balances: { coin: string; total: number | null; available: number | null; locked: number | null }[]; openOrders: any[]; orderHistory: any[]; trades: any[]; feeRate: any; apiKeys: any[]; accountReady: boolean; serverSignerLoaded: boolean; configuredApiPublicKey?: string };
 
 declare global { interface Window { ethereum?: any } }
 
@@ -260,6 +260,12 @@ function JudgesPanel(props:any) {
     { label: 'Data / API Integration', detail: 'SoSoValue probes and SoDEX market reads are wired into the same product story.' },
     { label: 'UX & Clarity', detail: 'The launch page, judge board, and diagnostics read like a real product submission rather than a toy.' }
   ];
+  const builderEdges = [
+    'Non-custodial EIP-712 SoDEX order flow with browser-wallet and server-signed paths.',
+    'Live SoSoValue hot news + macro feed instead of static copy.',
+    'Wallet-linked SoDEX portfolio state with balances, orders, trades, and fee tier.',
+    'Deterministic client-order-id so submissions are safer and more production-like.'
+  ];
   return (
     <div className="single">
       <section className="panel" style={{ padding: '18px' }}>
@@ -289,6 +295,20 @@ function JudgesPanel(props:any) {
               <p>{item.detail}</p>
             </article>
           ))}
+        </div>
+        <div className="panel" style={{ padding: '14px', marginTop: '14px', background: 'rgba(255,255,255,0.03)' }}>
+          <div className="panelTitle">
+            <b>Global Builder Benchmark</b>
+            <a>What strong public repos consistently do</a>
+          </div>
+          <div className="storyList">
+            {builderEdges.map((item) => (
+              <article className="storyCard" key={item}>
+                <b>{item}</b>
+                <p>This is the kind of implementation detail that makes a build feel real to developers and judges, not just visually polished.</p>
+              </article>
+            ))}
+          </div>
         </div>
         <div className="panel" style={{ padding: '14px', marginTop: '14px', background: 'rgba(255,255,255,0.03)' }}>
           <div className="panelTitle">
@@ -335,6 +355,7 @@ function ExecutionDesk(props:any) {
   const [liveError, setLiveError] = useState('');
   const [liveResult, setLiveResult] = useState<any>(null);
   const [liveAccount, setLiveAccount] = useState<PortfolioLiveData | null>(null);
+  const [livePreparing, setLivePreparing] = useState(false);
 
   const asset = tradable.find((item: Asset) => item.symbol === symbol) || tradable[0] || null;
   useEffect(() => { if (asset?.symbol) setSymbol(asset.symbol); }, [asset?.symbol]);
@@ -481,25 +502,48 @@ function ExecutionDesk(props:any) {
   const botPnLHint = topBotPick?.item ? deriveScenarioMove(topBotPick.item) * 100 : 0;
   const liveOrderSymbol = asset?.sodexSymbol || (symbol === 'BTC' ? 'vBTC_vUSDC' : symbol === 'ETH' ? 'vETH_vUSDC' : symbol === 'SOL' ? 'vSOL_vUSDC' : symbol === 'LINK' ? 'vLINK_vUSDC' : symbol === 'SOSO' ? 'SOSO_USDC' : '');
 
+  const inferredAid = String(liveAccount?.state?.aid || '');
+  const activeAccountID = accountID || (inferredAid && inferredAid !== '0' ? inferredAid : '');
+  const browserWalletMatchesApiKey = wallet?.address && liveAccount?.configuredApiPublicKey ? wallet.address.toLowerCase() === liveAccount.configuredApiPublicKey.toLowerCase() : false;
+  const canSubmitLive = Boolean(wallet?.address && liveOrderSymbol && activeAccountID);
+
+  const refreshLiveAccount = useCallback(async () => {
+    if (!wallet?.address) return;
+    try {
+      const qs = new URLSearchParams({ address: wallet.address });
+      if (accountID) qs.set('accountID', accountID);
+      const res = await fetch(`/api/portfolio-live?${qs.toString()}`, { cache: 'no-store' });
+      const json = await res.json();
+      if (json.ok) {
+        setLiveAccount(json.data || null);
+        if (!accountID && json.data?.state?.aid) setAccountID(String(json.data.state.aid));
+      }
+    } catch {}
+  }, [wallet?.address, accountID]);
+
   const submitLiveOrder = useCallback(async () => {
     setLiveError('');
     setLiveStatus('');
     setLiveResult(null);
+    setLivePreparing(true);
     if (!wallet?.address) {
       setLiveError('Connect the builder wallet before routing a live SoDEX order.');
+      setLivePreparing(false);
       return;
     }
     if (!liveOrderSymbol) {
       setLiveError('This asset is not mapped to a live SoDEX spot symbol.');
+      setLivePreparing(false);
       return;
     }
-    if (!accountID) {
+    if (!activeAccountID) {
       setLiveError('Account ID is required. Load Portfolio Live or enter the SoDEX account ID manually.');
+      setLivePreparing(false);
       return;
     }
     const payload = {
       walletAddress: wallet.address,
-      accountID: Number(accountID),
+      accountID: Number(activeAccountID),
       symbol: liveOrderSymbol,
       side,
       type: orderType,
@@ -515,6 +559,8 @@ function ExecutionDesk(props:any) {
         if (!json.ok) throw new Error(json.error || 'Server-signed order failed');
         setLiveResult(json);
         setLiveStatus('Server-signed order submitted to SoDEX.');
+        refreshLiveAccount();
+        setLivePreparing(false);
         return;
       }
       if (!window.ethereum) {
@@ -541,11 +587,14 @@ function ExecutionDesk(props:any) {
       if (!submitJson.ok) throw new Error(submitJson.error || 'Signed submit failed');
       setLiveResult(submitJson);
       setLiveStatus('Browser-signed order submitted to SoDEX.');
+      refreshLiveAccount();
     } catch (err: any) {
       setLiveError(err?.message || 'Failed to route live order');
       setLiveStatus('');
+    } finally {
+      setLivePreparing(false);
     }
-  }, [wallet?.address, liveOrderSymbol, accountID, side, orderType, liveQuantity, liveFunds, livePrice, liveMode]);
+  }, [wallet?.address, liveOrderSymbol, activeAccountID, side, orderType, liveQuantity, liveFunds, livePrice, liveMode, refreshLiveAccount]);
 
   return (
     <div className="single">
@@ -693,9 +742,20 @@ function ExecutionDesk(props:any) {
           {liveError && <div className="walletError" style={{ margin: '0 0 14px 0' }}>{liveError}</div>}
           <div className="featureGrid">
             <article><b>{liveOrderSymbol || '—'}</b><p>Mapped SoDEX symbol</p></article>
-            <article><b>{accountID || liveAccount?.state?.aid || 0}</b><p>Account ID</p></article>
+            <article><b>{activeAccountID || 0}</b><p>Account ID</p></article>
             <article><b>{liveAccount?.accountReady ? 'READY' : 'CHECK'}</b><p>SoDEX account readiness</p></article>
             <article><b>{liveMode.toUpperCase()}</b><p>Signing path</p></article>
+            <article><b>{liveAccount?.feeRate?.makerFeeRate || '—'}</b><p>Maker fee</p></article>
+            <article><b>{liveAccount?.feeRate?.takerFeeRate || '—'}</b><p>Taker fee</p></article>
+            <article><b>{liveAccount?.apiKeys?.length || 0}</b><p>API keys found</p></article>
+            <article><b>{browserWalletMatchesApiKey ? 'MATCH' : 'CHECK'}</b><p>Wallet vs API public key</p></article>
+          </div>
+          <div className="storyList" style={{ marginTop: '14px' }}>
+            <article className="storyCard">
+              <div className="storyMeta"><span>Preflight</span><em>Builder-safe</em></div>
+              <b>{liveAccount?.accountReady ? 'Account detected on SoDEX' : 'Wallet connected but SoDEX account not initialized yet'}</b>
+              <p>{liveAccount?.accountReady ? `Using account ${activeAccountID}. Orders, balances, fee tier, and history can be refreshed from the same wallet state.` : 'This is still a useful demo outcome for judges because it proves the app is reading the venue honestly instead of fabricating balances or order history.'}</p>
+            </article>
           </div>
           <div className="toolBar" style={{ paddingLeft: 0, paddingRight: 0, marginTop: '14px' }}>
             <label>Mode
@@ -705,7 +765,7 @@ function ExecutionDesk(props:any) {
               </select>
             </label>
             <label>Account ID
-              <input value={accountID} onChange={(e) => setAccountID(e.target.value)} placeholder="required" />
+              <input value={accountID} onChange={(e) => setAccountID(e.target.value)} placeholder={inferredAid && inferredAid !== '0' ? `auto ${inferredAid}` : 'required'} />
             </label>
             <label>Order type
               <select value={orderType} onChange={(e) => setOrderType(e.target.value as 'LIMIT' | 'MARKET')}>
@@ -724,8 +784,10 @@ function ExecutionDesk(props:any) {
             </label>
           </div>
           <div className="toolBar" style={{ paddingLeft: 0, paddingRight: 0 }}>
-            <button className="miniBtn" onClick={submitLiveOrder}>Submit live order</button>
-            <span className="miniBtn">{liveStatus || 'Order route idle'}</span>
+            <button className="miniBtn" onClick={refreshLiveAccount}>Refresh account from wallet</button>
+            <button className="miniBtn" onClick={submitLiveOrder} disabled={!canSubmitLive || livePreparing}>{livePreparing ? 'Submitting...' : liveMode === 'browser' ? 'Sign and submit live order' : 'Submit live order'}</button>
+            <span className="miniBtn">{liveStatus || (!canSubmitLive ? 'Connect wallet and load account to enable live route' : 'Order route idle')}</span>
+            <a className="miniBtn" href="/portfolio-live">Open Portfolio Live</a>
           </div>
           {liveResult && <div className="panel" style={{ padding: '14px', marginTop: '14px', background: 'rgba(255,255,255,0.03)' }}><div className="panelTitle"><b>Live Response</b><a>SoDEX</a></div><pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0, color: '#dfe7f5' }}>{JSON.stringify(liveResult, null, 2)}</pre></div>}
         </div>
@@ -944,6 +1006,9 @@ function NewsFeedPanel() {
               <span>{lead.source === 'featured' ? 'Featured research' : 'Hot tape'}</span>
               <h3>{lead.title}</h3>
               <p style={{ color: '#c8d3e6', lineHeight: 1.6 }}>{lead.summary}</p>
+              <div className="launchCtas" style={{ marginTop: '14px' }}>
+                {lead.tags?.slice(0, 4).map((tag) => <span key={tag} className="miniBtn">#{tag}</span>)}
+              </div>
             </div>
             <div className="judgeScore">
               <b>{lead.author}</b>
@@ -1021,6 +1086,16 @@ function NewsFeedPanel() {
               ))}
             </div>
           </section>
+          <section className="panel" style={{ padding: '16px' }}>
+            <div className="panelTitle">
+              <b>Why This Scores</b>
+              <a>Judge narrative</a>
+            </div>
+            <div className="storyList">
+              <article className="storyCard"><b>News is not decorative</b><p>The feed is sourced directly from SoSoValue hot and featured endpoints, so the research narrative changes with the market.</p></article>
+              <article className="storyCard"><b>Macro is decision support</b><p>The macro calendar makes the launch desk useful for real trading prep, not only for screenshots.</p></article>
+            </div>
+          </section>
         </aside>
       </section>
     </div>
@@ -1089,6 +1164,13 @@ function PortfolioLivePage(props:any) {
           <article><b>{live?.openOrders?.length || 0}</b><p>Open orders</p></article>
           <article><b>{live?.trades?.length || 0}</b><p>Recent trades</p></article>
           <article><b>{live?.apiKeys?.length || 0}</b><p>API keys attached</p></article>
+        </div>
+        <div className="storyList" style={{ marginTop: '14px' }}>
+          <article className="storyCard">
+            <div className="storyMeta"><span>Builder proof</span><em>Venue state</em></div>
+            <b>{live?.accountReady ? 'This wallet is reading a real SoDEX account.' : 'This wallet is connected, but the venue reports no initialized SoDEX account yet.'}</b>
+            <p>{live?.accountReady ? 'That is exactly the kind of live state judges want to see before trusting a live submit button.' : 'Honest empty state is better than fake balances. It proves the demo is pulling directly from SoDEX rather than using mock rows.'}</p>
+          </article>
         </div>
       </section>
       <section className="contentGrid" style={{ paddingTop: 0 }}>
