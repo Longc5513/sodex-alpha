@@ -19,11 +19,12 @@ type BotAction = { time: string; symbol: string; side: 'BUY' | 'SELL' | 'HOLD'; 
 type LiveNewsItem = { id: string; source: 'hot' | 'featured'; title: string; summary: string; releaseTime: number; author: string; link: string; tags: string[]; image: string };
 type MacroEvent = { date: string; events: string[] };
 type PortfolioLiveData = { address: string; requestedAccountID: string; state: { user: string; aid: number; uid: number; balancesRaw: any[]; openOrdersRaw: any[] }; balances: { coin: string; total: number | null; available: number | null; locked: number | null }[]; openOrders: any[]; orderHistory: any[]; trades: any[]; feeRate: any; apiKeys: any[]; accountReady: boolean; serverSignerLoaded: boolean; configuredApiPublicKey?: string };
+type DecisionLogEntry = { id: string; time: string; symbol: string; side: 'BUY'|'SELL'|'HOLD'; mode: string; price: number; qty: number; confidence: number; spreadBps: number | null; topBid: number | null; topAsk: number | null; depthUsd: number | null; signalReason: string; newsTitle: string; newsLink: string; macroDate: string; macroEvents: string[]; riskGate: string[]; outcome: string };
 
 declare global { interface Window { ethereum?: any } }
 
-const nav = ['Launch','Judges','Execution','Markets','Watchlist','Alpha Signals','Screener','Heatmap','Portfolio','Portfolio Live','Paper Trading','News & Insights','SoSoValue Indexes','On-Chain','AI Research','Alerts','Leaderboard','Settings','Diag'];
-const navIcons = ['⌂','⚖','⇢','⌁','★','◌','⚗','⌘','▣','◫','◎','▤','◈','⌬','✺','♧','♕','⚙','◧'];
+const nav = ['Launch','Judges','Execution','Decision Log','Markets','Watchlist','Alpha Signals','Screener','Heatmap','Portfolio','Portfolio Live','Paper Trading','News & Insights','SoSoValue Indexes','On-Chain','AI Research','Alerts','Leaderboard','Settings','Diag'];
+const navIcons = ['⌂','⚖','⇢','≣','⌁','★','◌','⚗','⌘','▣','◫','◎','▤','◈','⌬','✺','♧','♕','⚙','◧'];
 const official = [['SoSoValue Project','https://sosovalue.com/'],['SoSoValue Console','https://sosovalue.com/developer/dashboard'],['SoSoValue API Docs','https://sosovalue-1.gitbook.io/sosovalue-api-doc'],['SoDEX Official','https://sodex.com/'],['SoDEX REST API','https://sodex.com/documentation/trading-api/rest-v1'],['Telegram','https://t.me/SoSoValueCommunity'],['Discord','https://discord.gg/sodex'],['Follow SoSoValue','https://x.com/SoSoValueCrypto'],['Follow SoDEX','https://x.com/sodex_official']];
 const pathOf = (n:string)=> `/${n.toLowerCase().replace(/&/g,'and').replace(/\s+/g,'-').replace(/[^a-z0-9-]/g,'')}`;
 const usd = (n:number|null)=> n==null||Number.isNaN(n) ? '—' : n>=1e12?`$${(n/1e12).toFixed(2)}T`:n>=1e9?`$${(n/1e9).toFixed(2)}B`:n>=1e6?`$${(n/1e6).toFixed(2)}M`:n>=1000?`$${n.toLocaleString(undefined,{maximumFractionDigits:0})}`:n>=1?`$${n.toLocaleString(undefined,{maximumFractionDigits:2})}`:`$${n.toLocaleString(undefined,{maximumFractionDigits:4})}`;
@@ -116,6 +117,11 @@ function clamp(value: number, min: number, max: number) {
 
 function formatBp(value: number) {
   return `${value >= 0 ? '+' : ''}${value.toFixed(1)} bps`;
+}
+
+function parseNum(value: any) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
 }
 
 function deriveSpread(asset: Asset, confidence: number) {
@@ -356,6 +362,10 @@ function ExecutionDesk(props:any) {
   const [liveResult, setLiveResult] = useState<any>(null);
   const [liveAccount, setLiveAccount] = useState<PortfolioLiveData | null>(null);
   const [livePreparing, setLivePreparing] = useState(false);
+  const [liveMeta, setLiveMeta] = useState<any>(null);
+  const [maxNotional, setMaxNotional] = useState(2500);
+  const [decisionLog, setDecisionLog] = useLocal<DecisionLogEntry[]>('sodex.decision.log', []);
+  const [newsState, setNewsState] = useState<{ lead: LiveNewsItem | null; macro: MacroEvent | null }>({ lead: null, macro: null });
 
   const asset = tradable.find((item: Asset) => item.symbol === symbol) || tradable[0] || null;
   useEffect(() => { if (asset?.symbol) setSymbol(asset.symbol); }, [asset?.symbol]);
@@ -368,6 +378,42 @@ function ExecutionDesk(props:any) {
       .catch(() => { if (live) setDetail(null); });
     return () => { live = false; };
   }, [symbol]);
+  useEffect(() => {
+    if (!liveOrderSymbol) {
+      setLiveMeta(null);
+      return;
+    }
+    let active = true;
+    const payload = {
+      walletAddress: wallet?.address || '0x1111111111111111111111111111111111111111',
+      accountID: Number(activeAccountID || 1),
+      symbol: liveOrderSymbol,
+      side,
+      type: orderType,
+      quantity: orderType === 'MARKET' && liveFunds ? undefined : liveQuantity,
+      funds: orderType === 'MARKET' ? liveFunds : undefined,
+      price: orderType === 'LIMIT' ? livePrice || String(asset?.price || '') : undefined
+    };
+    fetch('/api/sodex/prepare', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      .then((res) => res.json())
+      .then((json) => { if (active && json.ok) setLiveMeta(json.prepared?.symbolMeta || null); })
+      .catch(() => { if (active) setLiveMeta(null); });
+    return () => { active = false; };
+  }, [liveOrderSymbol, activeAccountID, side, orderType, liveFunds, liveQuantity, livePrice, wallet?.address, asset?.price]);
+  useEffect(() => {
+    let active = true;
+    fetch('/api/news-live', { cache: 'no-store' })
+      .then((res) => res.json())
+      .then((json) => {
+        if (!active) return;
+        setNewsState({
+          lead: json?.stories?.[0] || null,
+          macro: json?.macroEvents?.[0] || null
+        });
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, []);
   useEffect(() => {
     if (asset?.price) setLivePrice(String(asset.price));
   }, [asset?.price]);
@@ -465,6 +511,27 @@ function ExecutionDesk(props:any) {
       },
       ...botHistory.slice(0, 11)
     ];
+    setDecisionLog([{
+      id: `${Date.now()}-${pick.item.symbol}-bot`,
+      time: new Date().toISOString(),
+      symbol: pick.item.symbol,
+      side: signalSide,
+      mode: `Bot / ${botMode}`,
+      price: pick.item.price || 0,
+      qty: botQty,
+      confidence: pick.item.confidence,
+      spreadBps: pick.item.price ? deriveSpread(pick.item, pick.item.confidence) * 100 : null,
+      topBid,
+      topAsk,
+      depthUsd: visibleDepthUsd || null,
+      signalReason: reason,
+      newsTitle: newsState.lead?.title || '',
+      newsLink: newsState.lead?.link || '',
+      macroDate: newsState.macro?.date || '',
+      macroEvents: newsState.macro?.events || [],
+      riskGate: ['Paper mode', `Bot score ${pick.score.toFixed(2)}`],
+      outcome: signalSide === 'HOLD' ? 'Observed only' : 'Routed to paper positions'
+    }, ...decisionLog.slice(0, 59)]);
     setBotStatus(`Live scan routed ${pick.item.symbol}`);
     setBotHistory(nextHistory);
     if (signalSide !== 'HOLD') {
@@ -479,7 +546,7 @@ function ExecutionDesk(props:any) {
         }
       ]);
     }
-  }, [tradable, botBudget, botMode, botHistory, setBotHistory, setPositions, positions]);
+  }, [tradable, botBudget, botMode, botHistory, setBotHistory, setPositions, positions, setDecisionLog, newsState.lead?.title, newsState.lead?.link, newsState.macro?.date, newsState.macro?.events, topBid, topAsk, visibleDepthUsd, decisionLog]);
 
   useEffect(() => {
     if (!botEnabled) return;
@@ -506,6 +573,33 @@ function ExecutionDesk(props:any) {
   const activeAccountID = accountID || (inferredAid && inferredAid !== '0' ? inferredAid : '');
   const browserWalletMatchesApiKey = wallet?.address && liveAccount?.configuredApiPublicKey ? wallet.address.toLowerCase() === liveAccount.configuredApiPublicKey.toLowerCase() : false;
   const canSubmitLive = Boolean(wallet?.address && liveOrderSymbol && activeAccountID);
+  const liveQtyNum = parseNum(liveQuantity) || 0;
+  const liveFundsNum = parseNum(liveFunds) || 0;
+  const livePriceNum = parseNum(livePrice) || price || 0;
+  const orderNotional = orderType === 'MARKET' && liveFundsNum > 0 ? liveFundsNum : liveQtyNum * livePriceNum;
+  const makerFeeRate = parseNum(liveMeta?.makerFee) ?? parseNum(liveAccount?.feeRate?.makerFeeRate) ?? 0;
+  const takerFeeRate = parseNum(liveMeta?.takerFee) ?? parseNum(liveAccount?.feeRate?.takerFeeRate) ?? 0;
+  const feeAwareRate = orderType === 'LIMIT' ? makerFeeRate : takerFeeRate;
+  const feeAwareCost = orderNotional * feeAwareRate;
+  const minNotional = parseNum(liveMeta?.minNotional) ?? 0;
+  const maxVenueNotional = parseNum(liveMeta?.maxNotional) ?? 0;
+  const minQuantity = parseNum(liveMeta?.minQuantity) ?? 0;
+  const maxVenueQuantity = parseNum(liveMeta?.maxQuantity) ?? 0;
+  const availableTopSize = side === 'BUY' ? (detail?.orderbook?.asks?.[0]?.[1] || 0) : (detail?.orderbook?.bids?.[0]?.[1] || 0);
+  const topBid = detail?.orderbook?.bids?.[0]?.[0] || null;
+  const topAsk = detail?.orderbook?.asks?.[0]?.[0] || null;
+  const visibleDepthUsd = depth.reduce((sum, row) => sum + ((row.size || 0) * (((row.bid || 0) + (row.ask || 0)) / 2)), 0);
+  const riskGateReasons = [
+    !liveAccount?.accountReady ? 'Blocked: SoDEX account aid=0 or account not initialized.' : '',
+    minNotional > 0 && orderNotional < minNotional ? `Blocked: order notional ${usd(orderNotional)} is below venue minNotional ${usd(minNotional)}.` : '',
+    maxVenueNotional > 0 && orderNotional > maxVenueNotional ? `Blocked: order notional ${usd(orderNotional)} is above venue maxNotional ${usd(maxVenueNotional)}.` : '',
+    maxNotional > 0 && orderNotional > maxNotional ? `Blocked: order notional ${usd(orderNotional)} is above operator max notional ${usd(maxNotional)}.` : '',
+    orderType !== 'MARKET' && liveQtyNum > 0 && minQuantity > 0 && liveQtyNum < minQuantity ? `Blocked: quantity ${liveQtyNum} is below venue minQuantity ${minQuantity}.` : '',
+    orderType !== 'MARKET' && liveQtyNum > 0 && maxVenueQuantity > 0 && liveQtyNum > maxVenueQuantity ? `Blocked: quantity ${liveQtyNum} is above venue maxQuantity ${maxVenueQuantity}.` : '',
+    availableTopSize > 0 && liveQtyNum > availableTopSize * 8 ? 'Blocked: requested size is too large relative to visible top-of-book depth.' : '',
+    !browserWalletMatchesApiKey && liveMode === 'browser' ? 'Blocked: connected wallet does not match configured SoDEX API public key for browser signing.' : ''
+  ].filter(Boolean);
+  const liveRiskPassed = riskGateReasons.length === 0;
 
   const refreshLiveAccount = useCallback(async () => {
     if (!wallet?.address) return;
@@ -541,6 +635,32 @@ function ExecutionDesk(props:any) {
       setLivePreparing(false);
       return;
     }
+    if (!liveRiskPassed) {
+      setLiveError(riskGateReasons[0] || 'Risk gate blocked live submission.');
+      setDecisionLog([{
+        id: `${Date.now()}-${symbol}-blocked`,
+        time: new Date().toISOString(),
+        symbol,
+        side,
+        mode: `Live / ${liveMode === 'browser' ? 'Browser Wallet' : 'Server Signed'}`,
+        price: livePriceNum || price || 0,
+        qty: liveQtyNum || qty,
+        confidence: asset?.confidence || 0,
+        spreadBps: detail?.spreadBps ?? null,
+        topBid,
+        topAsk,
+        depthUsd: visibleDepthUsd || null,
+        signalReason: asset?.signal ? `${asset.signal} with confidence ${asset.confidence}%` : 'No signal',
+        newsTitle: newsState.lead?.title || '',
+        newsLink: newsState.lead?.link || '',
+        macroDate: newsState.macro?.date || '',
+        macroEvents: newsState.macro?.events || [],
+        riskGate: riskGateReasons,
+        outcome: 'Blocked before submit'
+      }, ...decisionLog.slice(0, 59)]);
+      setLivePreparing(false);
+      return;
+    }
     const payload = {
       walletAddress: wallet.address,
       accountID: Number(activeAccountID),
@@ -559,6 +679,27 @@ function ExecutionDesk(props:any) {
         if (!json.ok) throw new Error(json.error || 'Server-signed order failed');
         setLiveResult(json);
         setLiveStatus('Server-signed order submitted to SoDEX.');
+        setDecisionLog([{
+          id: `${Date.now()}-${symbol}-live-server`,
+          time: new Date().toISOString(),
+          symbol,
+          side,
+          mode: 'Live / Server Signed',
+          price: livePriceNum || price || 0,
+          qty: liveQtyNum || qty,
+          confidence: asset?.confidence || 0,
+          spreadBps: detail?.spreadBps ?? null,
+          topBid,
+          topAsk,
+          depthUsd: visibleDepthUsd || null,
+          signalReason: asset?.signal ? `${asset.signal} with confidence ${asset.confidence}%` : 'No signal',
+          newsTitle: newsState.lead?.title || '',
+          newsLink: newsState.lead?.link || '',
+          macroDate: newsState.macro?.date || '',
+          macroEvents: newsState.macro?.events || [],
+          riskGate: ['PASS', `Fee-aware cost ${usd(feeAwareCost)}`],
+          outcome: 'Submitted to SoDEX'
+        }, ...decisionLog.slice(0, 59)]);
         refreshLiveAccount();
         setLivePreparing(false);
         return;
@@ -587,6 +728,27 @@ function ExecutionDesk(props:any) {
       if (!submitJson.ok) throw new Error(submitJson.error || 'Signed submit failed');
       setLiveResult(submitJson);
       setLiveStatus('Browser-signed order submitted to SoDEX.');
+      setDecisionLog([{
+        id: `${Date.now()}-${symbol}-live-browser`,
+        time: new Date().toISOString(),
+        symbol,
+        side,
+        mode: 'Live / Browser Wallet',
+        price: livePriceNum || price || 0,
+        qty: liveQtyNum || qty,
+        confidence: asset?.confidence || 0,
+        spreadBps: detail?.spreadBps ?? null,
+        topBid,
+        topAsk,
+        depthUsd: visibleDepthUsd || null,
+        signalReason: asset?.signal ? `${asset.signal} with confidence ${asset.confidence}%` : 'No signal',
+        newsTitle: newsState.lead?.title || '',
+        newsLink: newsState.lead?.link || '',
+        macroDate: newsState.macro?.date || '',
+        macroEvents: newsState.macro?.events || [],
+        riskGate: ['PASS', `Fee-aware cost ${usd(feeAwareCost)}`],
+        outcome: 'Signed and submitted to SoDEX'
+      }, ...decisionLog.slice(0, 59)]);
       refreshLiveAccount();
     } catch (err: any) {
       setLiveError(err?.message || 'Failed to route live order');
@@ -594,7 +756,7 @@ function ExecutionDesk(props:any) {
     } finally {
       setLivePreparing(false);
     }
-  }, [wallet?.address, liveOrderSymbol, activeAccountID, side, orderType, liveQuantity, liveFunds, livePrice, liveMode, refreshLiveAccount]);
+  }, [wallet?.address, liveOrderSymbol, activeAccountID, side, orderType, liveQuantity, liveFunds, livePrice, liveMode, refreshLiveAccount, liveRiskPassed, riskGateReasons, symbol, livePriceNum, price, liveQtyNum, qty, asset?.confidence, asset?.signal, detail?.spreadBps, topBid, topAsk, visibleDepthUsd, newsState.lead?.title, newsState.lead?.link, newsState.macro?.date, newsState.macro?.events, feeAwareCost, decisionLog, setDecisionLog]);
 
   return (
     <div className="single">
@@ -750,11 +912,24 @@ function ExecutionDesk(props:any) {
             <article><b>{liveAccount?.apiKeys?.length || 0}</b><p>API keys found</p></article>
             <article><b>{browserWalletMatchesApiKey ? 'MATCH' : 'CHECK'}</b><p>Wallet vs API public key</p></article>
           </div>
+          <div className="featureGrid" style={{ marginTop: '14px' }}>
+            <article><b>{usd(orderNotional)}</b><p>Order notional</p></article>
+            <article><b>{usd(minNotional)}</b><p>Venue min notional</p></article>
+            <article><b>{usd(maxVenueNotional || null)}</b><p>Venue max notional</p></article>
+            <article><b>{usd(maxNotional)}</b><p>Operator max notional</p></article>
+            <article><b>{usd(feeAwareCost)}</b><p>Fee-aware cost</p></article>
+            <article><b>{liveRiskPassed ? 'PASS' : 'BLOCK'}</b><p>Risk gate</p></article>
+          </div>
           <div className="storyList" style={{ marginTop: '14px' }}>
             <article className="storyCard">
               <div className="storyMeta"><span>Preflight</span><em>Builder-safe</em></div>
               <b>{liveAccount?.accountReady ? 'Account detected on SoDEX' : 'Wallet connected but SoDEX account not initialized yet'}</b>
               <p>{liveAccount?.accountReady ? `Using account ${activeAccountID}. Orders, balances, fee tier, and history can be refreshed from the same wallet state.` : 'This is still a useful demo outcome for judges because it proves the app is reading the venue honestly instead of fabricating balances or order history.'}</p>
+            </article>
+            <article className="storyCard">
+              <div className="storyMeta"><span>Risk Gate</span><em>Venue aware</em></div>
+              <b>{liveRiskPassed ? 'All live submission checks passed.' : 'Live submission is blocked until venue and operator checks pass.'}</b>
+              <p>{riskGateReasons.length ? riskGateReasons.join(' ') : `Fee-aware cost ${usd(feeAwareCost)}. Visible depth ${usd(visibleDepthUsd)}. Top of book ${topBid ? usd(topBid) : '—'} / ${topAsk ? usd(topAsk) : '—'}.`}</p>
             </article>
           </div>
           <div className="toolBar" style={{ paddingLeft: 0, paddingRight: 0, marginTop: '14px' }}>
@@ -782,12 +957,16 @@ function ExecutionDesk(props:any) {
             <label>Price
               <input value={livePrice} onChange={(e) => setLivePrice(e.target.value)} placeholder="limit only" />
             </label>
+            <label>Max notional
+              <input type="number" value={maxNotional} onChange={(e) => setMaxNotional(Number(e.target.value))} />
+            </label>
           </div>
           <div className="toolBar" style={{ paddingLeft: 0, paddingRight: 0 }}>
             <button className="miniBtn" onClick={refreshLiveAccount}>Refresh account from wallet</button>
-            <button className="miniBtn" onClick={submitLiveOrder} disabled={!canSubmitLive || livePreparing}>{livePreparing ? 'Submitting...' : liveMode === 'browser' ? 'Sign and submit live order' : 'Submit live order'}</button>
+            <button className="miniBtn" onClick={submitLiveOrder} disabled={!canSubmitLive || livePreparing || !liveRiskPassed}>{livePreparing ? 'Submitting...' : liveMode === 'browser' ? 'Sign and submit live order' : 'Submit live order'}</button>
             <span className="miniBtn">{liveStatus || (!canSubmitLive ? 'Connect wallet and load account to enable live route' : 'Order route idle')}</span>
             <a className="miniBtn" href="/portfolio-live">Open Portfolio Live</a>
+            <a className="miniBtn" href="/decision-log">Open Decision Log</a>
           </div>
           {liveResult && <div className="panel" style={{ padding: '14px', marginTop: '14px', background: 'rgba(255,255,255,0.03)' }}><div className="panelTitle"><b>Live Response</b><a>SoDEX</a></div><pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0, color: '#dfe7f5' }}>{JSON.stringify(liveResult, null, 2)}</pre></div>}
         </div>
@@ -1102,6 +1281,46 @@ function NewsFeedPanel() {
   );
 }
 
+function DecisionLogPage() {
+  const [rows, setRows] = useLocal<DecisionLogEntry[]>('sodex.decision.log', []);
+  return (
+    <div className="single">
+      <section className="panel" style={{ padding: '18px' }}>
+        <div className="panelTitle">
+          <b>Decision Log</b>
+          <a>{rows.length} decisions recorded</a>
+        </div>
+        <div className="featureGrid">
+          <article><b>Signal provenance</b><p>Each row stores signal reason, SoDEX spread/depth, and SoSoValue context.</p></article>
+          <article><b>Judge ready</b><p>This is the screen to prove the bot and live route are explainable, not just executable.</p></article>
+          <article><b>Local audit trail</b><p>Saved in the browser so the builder can keep a running demo record during the judging session.</p></article>
+        </div>
+        <div className="toolBar" style={{ paddingLeft: 0, paddingRight: 0, marginTop: '14px' }}>
+          <button className="miniBtn" onClick={() => setRows([])}>Clear log</button>
+          <span className="miniBtn">Newest first</span>
+        </div>
+      </section>
+      <section className="storyList">
+        {rows.length ? rows.map((row) => (
+          <article className="storyCard" key={row.id}>
+            <div className="storyMeta">
+              <span>{row.mode}</span>
+              <em>{formatDateTime(row.time)}</em>
+            </div>
+            <b>{row.symbol} · {row.side} · {usd(row.price)} · qty {row.qty}</b>
+            <p>{row.signalReason}</p>
+            <p>Spread: {row.spreadBps !== null ? formatBp(row.spreadBps) : '—'} · Top bid/ask: {row.topBid ? usd(row.topBid) : '—'} / {row.topAsk ? usd(row.topAsk) : '—'} · Visible depth: {usd(row.depthUsd)}</p>
+            <p>News: {row.newsTitle || 'No news snapshot'} {row.newsLink ? <a href={row.newsLink} target="_blank" rel="noreferrer" className="miniBtn" style={{marginLeft:'8px'}}>Open source</a> : null}</p>
+            <p>Macro: {row.macroDate || '—'} {row.macroEvents?.length ? `· ${row.macroEvents.join(' · ')}` : ''}</p>
+            <p>Risk gate: {row.riskGate.join(' | ')}</p>
+            <small>{row.outcome}</small>
+          </article>
+        )) : <section className="panel" style={{ padding: '18px' }}><div className="panelTitle"><b>No decisions yet</b><a>Run bot scan or submit a live order</a></div><p style={{color:'#aebacc'}}>This page will fill as soon as the bot scans, signal routes, or live order attempts create provenance rows.</p></section>}
+      </section>
+    </div>
+  );
+}
+
 function PortfolioLivePage(props:any) {
   const { wallet } = props;
   const [accountID, setAccountID] = useState('');
@@ -1242,15 +1461,16 @@ export default function Terminal({initialMenu='Dashboard'}:{initialMenu?:string}
   const [assets,setAssets]=useState<Asset[]>([]),[active,setActive]=useState<Asset|null>(null),[activeMenu,setActiveMenu]=useState(initialMenu),[wallet,setWallet]=useState<WalletState>(null),[walletError,setWalletError]=useState(''),[loading,setLoading]=useState(false);
   const [overview,setOverview]=useState<MarketOverview | null>(null);
   const [watchlist,setWatchlist]=useLocal<string[]>('sodex.watchlist',['BTC','ETH','SOSO']); const [positions,setPositions]=useLocal<PaperPosition[]>('sodex.paper',[]); const [alerts,setAlerts]=useLocal<AlertRule[]>('sodex.alerts',[]);
+  const [decisionLog,setDecisionLog]=useLocal<DecisionLogEntry[]>('sodex.decision.log',[]);
   const loadMarket=useCallback(async()=>{setLoading(true); try{const d=await fetch('/api/market',{cache:'no-store'}).then(r=>r.json()); const next=d.assets||[]; setAssets(next); setOverview(d.overview || null); setActive(prev=>next.find((a:Asset)=>a.symbol===prev?.symbol)||next[0]||null)}finally{setLoading(false)}},[]);
   useEffect(()=>{loadMarket(); const t=setInterval(loadMarket,60000); return()=>clearInterval(t)},[loadMarket]);
   const toggleWatch=(s:string)=>setWatchlist(watchlist.includes(s)?watchlist.filter(x=>x!==s):[...watchlist,s]);
-  const addTrade=(a:Asset)=>{ if(!a.price)return; setPositions([...positions,{symbol:a.symbol,side:a.signal==='HOLD'?'SELL':'BUY',qty:1,entry:a.price,time:new Date().toISOString()}]); setActiveMenu('Paper Trading'); };
+  const addTrade=(a:Asset)=>{ if(!a.price)return; const side=a.signal==='HOLD'?'SELL':'BUY'; const time=new Date().toISOString(); setPositions([...positions,{symbol:a.symbol,side,qty:1,entry:a.price,time}]); setDecisionLog([{id:`${Date.now()}-${a.symbol}-signal`,time,symbol:a.symbol,side,mode:'Signal / Paper Route',price:a.price,qty:1,confidence:a.confidence,spreadBps:null,topBid:null,topAsk:null,depthUsd:null,signalReason:`${a.signal} routed from signal panel`,newsTitle:'',newsLink:'',macroDate:'',macroEvents:[],riskGate:['Paper mode'],outcome:'Routed to paper trading'},...decisionLog.slice(0,59)]); setActiveMenu('Paper Trading'); };
   const readWallet=useCallback(async(address:string)=>{const eth=window.ethereum; const [chainId,rawBalance]=await Promise.all([eth.request({method:'eth_chainId'}),eth.request({method:'eth_getBalance',params:[address,'latest']})]); setWallet({address,chainId,balance:(Number(BigInt(rawBalance))/1e18).toString()}); localStorage.setItem('sodex.wallet.connected','1')},[]);
   const connect=async()=>{setWalletError(''); const eth=window.ethereum; if(!eth){setWalletError('No browser wallet detected. Install MetaMask or open in a Web3 browser.'); return} try{const acc=await eth.request({method:'eth_requestAccounts'}); if(acc?.[0]) await readWallet(acc[0])}catch(e:any){setWalletError(e?.message||'Wallet connection rejected.')}};
   const disconnect=()=>{setWallet(null); localStorage.removeItem('sodex.wallet.connected')};
   useEffect(()=>{const eth=window.ethereum; if(!eth)return; if(localStorage.getItem('sodex.wallet.connected')) eth.request({method:'eth_accounts'}).then((a:string[])=>a?.[0]&&readWallet(a[0])).catch(()=>{}); const onAcc=(a:string[])=>a?.[0]?readWallet(a[0]):disconnect(); const onChain=()=>wallet?.address&&readWallet(wallet.address); eth.on?.('accountsChanged',onAcc); eth.on?.('chainChanged',onChain); return()=>{eth.removeListener?.('accountsChanged',onAcc); eth.removeListener?.('chainChanged',onChain)}},[readWallet,wallet?.address]);
-  const main=active||assets[0]; const marketCap=assets.reduce((s,a)=>s+(a.marketCap||0),0), volume=assets.reduce((s,a)=>s+(a.volume24h||0),0); const props={assets,main,onPick:setActive,wallet,watchlist,toggleWatch,positions,setPositions,alerts,setAlerts,addTrade,overview};
-  const page = activeMenu==='Launch'||activeMenu==='Dashboard'?<LaunchPanel {...props}/>:activeMenu==='Judges'?<JudgesPanel {...props}/>:activeMenu==='Execution'?<ExecutionDesk {...props}/>:activeMenu==='Markets'?<Markets {...props}/>:activeMenu==='Watchlist'?<Watchlist {...props}/>:activeMenu==='Alpha Signals'?<AlphaSignals {...props}/>:activeMenu==='Screener'?<Screener {...props}/>:activeMenu==='Heatmap'?<Heatmap {...props}/>:activeMenu==='Portfolio'?<PortfolioPage {...props}/>:activeMenu==='Portfolio Live'?<PortfolioLivePage {...props}/>:activeMenu==='Paper Trading'?<PaperTrading {...props}/>:activeMenu==='Alerts'?<Alerts {...props}/>:activeMenu==='Diag'?<DiagPanel {...props}/>:activeMenu==='AI Research'?<ResearchPanel {...props}/>:activeMenu==='News & Insights'?<NewsFeedPanel />:['SoSoValue Indexes','On-Chain','Leaderboard','Settings'].includes(activeMenu)?<SimpleModule title={activeMenu} assets={assets}/>:main?<LaunchPanel {...props}/>:null;
+  const main=active||assets[0]; const marketCap=assets.reduce((s,a)=>s+(a.marketCap||0),0), volume=assets.reduce((s,a)=>s+(a.volume24h||0),0); const props={assets,main,onPick:setActive,wallet,watchlist,toggleWatch,positions,setPositions,alerts,setAlerts,addTrade,overview,decisionLog,setDecisionLog};
+  const page = activeMenu==='Launch'||activeMenu==='Dashboard'?<LaunchPanel {...props}/>:activeMenu==='Judges'?<JudgesPanel {...props}/>:activeMenu==='Execution'?<ExecutionDesk {...props}/>:activeMenu==='Decision Log'?<DecisionLogPage />:activeMenu==='Markets'?<Markets {...props}/>:activeMenu==='Watchlist'?<Watchlist {...props}/>:activeMenu==='Alpha Signals'?<AlphaSignals {...props}/>:activeMenu==='Screener'?<Screener {...props}/>:activeMenu==='Heatmap'?<Heatmap {...props}/>:activeMenu==='Portfolio'?<PortfolioPage {...props}/>:activeMenu==='Portfolio Live'?<PortfolioLivePage {...props}/>:activeMenu==='Paper Trading'?<PaperTrading {...props}/>:activeMenu==='Alerts'?<Alerts {...props}/>:activeMenu==='Diag'?<DiagPanel {...props}/>:activeMenu==='AI Research'?<ResearchPanel {...props}/>:activeMenu==='News & Insights'?<NewsFeedPanel />:['SoSoValue Indexes','On-Chain','Leaderboard','Settings'].includes(activeMenu)?<SimpleModule title={activeMenu} assets={assets}/>:main?<LaunchPanel {...props}/>:null;
   return <main className="app"><aside className="sidebar"><div className="logo brandLogo"><img src="/sodex-logo.jpg" alt="SoDEX logo"/><p><b>SoDEX</b><span>ALPHA TERMINAL</span></p></div><nav>{nav.map((n,i)=><a key={n} href={pathOf(n)} onClick={(e)=>{e.preventDefault(); window.history.pushState(null,'',pathOf(n)); setActiveMenu(n)}} className={activeMenu===n?'active':''}><span>{navIcons[i]}</span>{n}{n==='Alpha Signals'&&<em>LIVE</em>}</a>)}</nav><div className="community"><small>OFFICIAL & COMMUNITY</small>{official.slice(0,4).map(([l,h])=><a key={l} href={h} target="_blank">{l}<span>↗</span></a>)}</div></aside><section className="desk"><header className="playerBar compactBar"><div className="theme launchTheme"><div className="disc">◎</div><p><b>SoSoValue Launch Rail</b><span>Research, execution, diagnostics in one desk</span></p></div><div className="actions"><button className="bell" onClick={loadMarket}>{loading?'↻':'⟳'}</button>{wallet?<button onClick={disconnect} className="wallet">{short(wallet.address)} · Disconnect</button>:<button onClick={connect} className="wallet">Connect Wallet</button>}<button className="sun">✦</button></div></header>{walletError&&<div className="walletError">{walletError}</div>}<div className="ticker">{assets.map(a=><button key={a.symbol} onClick={()=>setActive(a)}><b>{a.symbol}</b><span>{usd(a.price)}</span><em className={a.change24h>=0?'green':'red'}>{pct(a.change24h)}</em></button>)}<button><span>Market Cap</span><b>{usd(overview?.totalMarketCap ?? marketCap)}</b><em>{overview?.leaders?.[0] || 'live'}</em></button><button><span>24H Vol</span><b>{usd(overview?.totalVolume24h ?? volume)}</b><em>{overview?.breadthPct ? `${Math.round(overview.breadthPct)}% green` : 'live'}</em></button><button><span>BTC.D</span><b>{overview?.btcDominance ? `${overview.btcDominance.toFixed(2)}%` : '—'}</b><em>{overview?.leaders?.slice(0,2).join(' · ') || 'SoSoValue'}</em></button></div>{page}</section></main>
 }

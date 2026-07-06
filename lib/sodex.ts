@@ -72,6 +72,19 @@ export type PreparedSpotOrder = {
   accountID: number;
   symbol: string;
   symbolID: number;
+  symbolMeta?: {
+    name: string;
+    displayName: string;
+    minNotional: string;
+    maxNotional: string;
+    minQuantity: string;
+    maxQuantity: string;
+    tickSize: string;
+    stepSize: string;
+    makerFee: string;
+    takerFee: string;
+    status: string;
+  };
 };
 
 function mod(value: bigint, base: bigint) {
@@ -487,7 +500,20 @@ export async function prepareSpotOrder(input: SpotOrderInput) {
     walletAddress: input.walletAddress,
     accountID: Number(input.accountID),
     symbol: input.symbol,
-    symbolID: Number(meta.id)
+    symbolID: Number(meta.id),
+    symbolMeta: {
+      name: String(meta.name || input.symbol),
+      displayName: String(meta.displayName || input.symbol),
+      minNotional: String(meta.minNotional || '0'),
+      maxNotional: String(meta.maxNotional || '0'),
+      minQuantity: String(meta.minQuantity || '0'),
+      maxQuantity: String(meta.maxQuantity || '0'),
+      tickSize: String(meta.tickSize || '0'),
+      stepSize: String(meta.stepSize || '0'),
+      makerFee: String(meta.makerFee || '0'),
+      takerFee: String(meta.takerFee || '0'),
+      status: String(meta.status || '')
+    }
   };
 }
 
