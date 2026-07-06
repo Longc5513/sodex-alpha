@@ -22,6 +22,9 @@ type DecisionLogEntry = { id: string; time: string; symbol: string; side: 'BUY'|
 type DraftSlice = { step: number; kind: 'LIMIT' | 'MARKET'; price: number | null; qty: number; notional: number };
 type ExecutionDraft = { id: string; createdAt: string; origin: 'rebalance' | 'news-bot' | 'copilot'; symbol: string; sodexSymbol: string; side: 'BUY' | 'SELL'; qty: number; notional: number; confidence: number; mode: 'LIMIT' | 'MARKET'; regime: string; rationale: string; slices: DraftSlice[]; status: 'draft' | 'queued' | 'archived' };
 type MarketDetail = { symbol: string; pair: string; price: number | null; spreadBps: number | null; orderbook: { bids: [number, number][]; asks: [number, number][] }; trades: { time: number; side: string; price: number; size: number }[]; klines: CandlePoint[] };
+type SmartMoneyPeer = { address: string; aid: number; uid: number; accountReady: boolean; openOrders: number; balances: number; trades: number; recentVolume: number; pnlTotal: number; symbols: string[]; lastTradeAt: number; exposure: { symbol: string; label: string; qty: number; avgCost: number; mark: number; realized: number; unrealized: number; net: number; trades: number; volume: number }[] };
+type SmartMoneyConsensus = { symbol: string; venueSymbol: string; traders: number; buyVolume: number; sellVolume: number; totalVolume: number; bias: 'BUY' | 'SELL' | 'MIXED' };
+type SmartMoneyData = { peers: SmartMoneyPeer[]; scorecard: { peerCount: number; avgPnl: number; avgVolume: number; bestPnl: number; topVolume: number }; consensus: SmartMoneyConsensus[]; user: null | { address: string; pnlTotal: number; recentVolume: number; pnlRank: number | null; volumeRank: number | null; pnlVsPeerAvg: number; volumeVsPeerAvg: number } };
 
 declare global { interface Window { ethereum?: any } }
 
@@ -1466,6 +1469,74 @@ function buildLivePnl(rows:any[], assets:Asset[]) {
   });
 }
 
+function buildTradeReplay(rows: any[], assets: Asset[], detailMap: Record<string, MarketDetail | null>) {
+  const ordered = (rows || []).slice().sort((a, b) => Number(a.time || a.T || 0) - Number(b.time || b.T || 0));
+  const actualLedger = new Map<string, { qty: number; cost: number; realized: number }>();
+  const filteredLedger = new Map<string, { qty: number; cost: number; realized: number }>();
+  const skipped = new Map<string, { symbol: string; reasons: string[]; currentNet: number }>();
+
+  const applyTrade = (ledger: Map<string, { qty: number; cost: number; realized: number }>, symbol: string, side: 'BUY' | 'SELL', price: number, quantity: number) => {
+    const state = ledger.get(symbol) || { qty: 0, cost: 0, realized: 0 };
+    if (side === 'BUY') {
+      state.qty += quantity;
+      state.cost += quantity * price;
+    } else {
+      const avgCost = state.qty > 0 ? state.cost / state.qty : price;
+      const closedQty = Math.min(state.qty, quantity);
+      state.realized += (price - avgCost) * closedQty;
+      state.qty -= closedQty;
+      state.cost -= avgCost * closedQty;
+    }
+    ledger.set(symbol, state);
+  };
+
+  const markLedger = (ledger: Map<string, { qty: number; cost: number; realized: number }>) => {
+    let total = 0;
+    for (const [symbol, state] of ledger.entries()) {
+      const asset = assets.find((row) => row.sodexSymbol === symbol || row.symbol === symbol || row.pair.replace(/\s|\/+/g,'').toUpperCase().includes(symbol.replace(/[^A-Z]/g,'')));
+      const mark = asset?.price || 0;
+      const avgCost = state.qty > 0 ? state.cost / state.qty : 0;
+      total += state.realized + (state.qty > 0 && mark ? (mark - avgCost) * state.qty : 0);
+    }
+    return total;
+  };
+
+  const actualPoints: number[] = [];
+  const filteredPoints: number[] = [];
+
+  for (const row of ordered) {
+    const symbol = String(row.symbol || row.s || row.name || '').trim();
+    if (!symbol) continue;
+    const price = parseNum(row.price || row.p) || 0;
+    const quantity = parseNum(row.quantity || row.q || row.size) || 0;
+    const sideRaw = String(row.side || row.S || '').toUpperCase();
+    const side = sideRaw.includes('SELL') || sideRaw === '2' ? 'SELL' : 'BUY';
+    const asset = assets.find((item) => item.sodexSymbol === symbol || item.symbol === symbol || item.pair.replace(/\s|\/+/g,'').toUpperCase().includes(symbol.replace(/[^A-Z]/g,'')));
+    const detail = detailMap[symbol] || detailMap[asset?.symbol || ''] || null;
+    const reasons: string[] = [];
+    if (asset?.confidence !== undefined && asset.confidence < 66) reasons.push('low confidence');
+    if (asset?.signal === 'HOLD') reasons.push('hold signal');
+    if ((detail?.spreadBps || 0) > 8) reasons.push('wide spread');
+
+    applyTrade(actualLedger, symbol, side, price, quantity);
+    if (!reasons.length) applyTrade(filteredLedger, symbol, side, price, quantity);
+    else {
+      const currentNet = buildLivePnl([row], assets).reduce((sum, item) => sum + item.net, 0);
+      skipped.set(symbol, { symbol: asset?.symbol || symbol, reasons, currentNet });
+    }
+    actualPoints.push(markLedger(actualLedger));
+    filteredPoints.push(markLedger(filteredLedger));
+  }
+
+  return {
+    actualPoints,
+    filteredPoints,
+    actualFinal: actualPoints[actualPoints.length - 1] || 0,
+    filteredFinal: filteredPoints[filteredPoints.length - 1] || 0,
+    skipped: Array.from(skipped.values())
+  };
+}
+
 type HeatmapSizeMode = 'volume' | 'marketCap' | 'confidence';
 type HeatmapColorMode = '24h' | '7d';
 type HeatmapRect<T> = { item: T; x: number; y: number; width: number; height: number; weight: number };
@@ -1536,6 +1607,12 @@ function PortfolioLivePage(props:any) {
   const [live, setLive] = useState<PortfolioLiveData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [detailMap, setDetailMap] = useState<Record<string, MarketDetail | null>>({});
+  const [peerWallets, setPeerWallets] = useLocal<string[]>('sodex.smartmoney.peers', []);
+  const [peerInput, setPeerInput] = useState('');
+  const [smartMoney, setSmartMoney] = useState<SmartMoneyData | null>(null);
+  const [smartLoading, setSmartLoading] = useState(false);
+  const [smartError, setSmartError] = useState('');
 
   const load = useCallback(async () => {
     if (!wallet?.address) return;
@@ -1558,7 +1635,76 @@ function PortfolioLivePage(props:any) {
     }
   }, [wallet?.address, accountID, symbol]);
 
+  const loadSmartMoney = useCallback(async (addresses = peerWallets) => {
+    if (!addresses.length) {
+      setSmartMoney(null);
+      setSmartError('');
+      return;
+    }
+    setSmartLoading(true);
+    setSmartError('');
+    try {
+      const qs = new URLSearchParams({ peers: addresses.join(','), userAddress: wallet?.address || '' });
+      if (symbol) qs.set('symbol', symbol);
+      const res = await fetch(`/api/smart-money?${qs.toString()}`, { cache: 'no-store' });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || 'Smart money read failed');
+      setSmartMoney(json.data || null);
+    } catch (err: any) {
+      setSmartError(err?.message || 'Failed to load smart money watch');
+      setSmartMoney(null);
+    } finally {
+      setSmartLoading(false);
+    }
+  }, [peerWallets, symbol, wallet?.address]);
+
+  const tradedSymbols = Array.from(new Set((live?.trades || []).map((row:any) => String(row.symbol || row.s || row.name || '').trim()).filter(Boolean)));
   useEffect(() => { if (wallet?.address) load(); }, [wallet?.address, load]);
+  useEffect(() => { if (wallet?.address && peerWallets.length) loadSmartMoney(peerWallets); }, [wallet?.address, peerWallets, loadSmartMoney]);
+  useEffect(() => {
+    const targets = tradedSymbols.filter((key) => detailMap[key] === undefined).slice(0, 8);
+    if (!targets.length) return;
+    let liveFlag = true;
+    Promise.all(targets.map(async (key) => {
+      const asset = assets.find((row: Asset) => row.sodexSymbol === key || row.symbol === key || row.pair.replace(/\s|\/+/g,'').toUpperCase().includes(key.replace(/[^A-Z]/g,'')));
+      const ref = asset?.symbol || key;
+      try {
+        const res = await fetch(`/api/market?symbol=${encodeURIComponent(ref)}`, { cache: 'no-store' });
+        const json = await res.json();
+        return [key, json.detail || null] as const;
+      } catch {
+        return [key, null] as const;
+      }
+    })).then((entries) => {
+      if (!liveFlag) return;
+      setDetailMap((prev) => {
+        const next = { ...prev };
+        for (const [key, value] of entries) next[key] = value;
+        return next;
+      });
+    });
+    return () => { liveFlag = false; };
+  }, [tradedSymbols.join('|'), assets, detailMap]);
+  const counterfactual = useMemo(() => buildTradeReplay(live?.trades || [], assets || [], detailMap), [live?.trades, assets, detailMap]);
+  const counterfactualDelta = counterfactual.filteredFinal - counterfactual.actualFinal;
+  const counterWidth = 100;
+  const counterHeight = 86;
+  const actualSeries = counterfactual.actualPoints.length ? counterfactual.actualPoints : [0, 0];
+  const filteredSeries = counterfactual.filteredPoints.length ? counterfactual.filteredPoints : [0, 0];
+  const allSeries = [...actualSeries, ...filteredSeries];
+  const minSeries = Math.min(...allSeries);
+  const maxSeries = Math.max(...allSeries);
+  const spanSeries = Math.max(1, maxSeries - minSeries);
+  const polylineFor = (series:number[]) => series.map((value, index) => {
+    const x = (index / Math.max(1, series.length - 1)) * counterWidth;
+    const y = counterHeight - ((value - minSeries) / spanSeries) * (counterHeight - 8) - 4;
+    return `${x.toFixed(2)},${y.toFixed(2)}`;
+  }).join(' ');
+  const savePeerWallets = () => {
+    const parsed = peerInput.split(/[,\n\r\s]+/).map((value) => value.trim()).filter((value) => /^0x[a-fA-F0-9]{40}$/.test(value));
+    setPeerWallets(parsed);
+    loadSmartMoney(parsed);
+  };
 
   if (!wallet?.address) {
     return <div className="single"><section className="panel" style={{padding:'18px'}}><div className="panelTitle"><b>Portfolio Live</b><a>SoDEX account state</a></div><div className="walletBox"><h2>No wallet connected</h2><p>Connect the builder wallet first. This screen reads balances, order state, fee rate, and API key readiness from SoDEX against the connected address.</p></div></section></div>;
@@ -1602,6 +1748,17 @@ function PortfolioLivePage(props:any) {
             <b>{live?.accountReady ? 'This wallet is reading a real SoDEX account.' : 'This wallet is connected, but the venue reports no initialized SoDEX account yet.'}</b>
             <p>{live?.accountReady ? 'That is exactly the kind of live state judges want to see before trusting a live submit button.' : 'Honest empty state is better than fake balances. It proves the demo is pulling directly from SoDEX rather than using mock rows.'}</p>
           </article>
+          <article className="storyCard">
+            <div className="storyMeta"><span>Peer set</span><em>Smart Money Watch</em></div>
+            <b>Track real SoDEX wallets to benchmark your execution against a custom peer cohort.</b>
+            <p>Paste public SoDEX wallet addresses from tournament pages, leaderboard screenshots, or your own peer set. The app reads each wallet live through SoDEX account endpoints and converts that into a benchmark surface.</p>
+            <div className="toolBar" style={{ paddingLeft: 0, paddingRight: 0 }}>
+              <input value={peerInput} onChange={(e) => setPeerInput(e.target.value)} placeholder="0xabc..., 0xdef..." />
+              <button className="miniBtn" onClick={savePeerWallets}>Save peer set</button>
+              <button className="miniBtn" onClick={() => { setPeerWallets([]); setPeerInput(''); setSmartMoney(null); }}>Clear peers</button>
+            </div>
+            <small>{peerWallets.length ? `${peerWallets.length} peer wallets saved locally.` : 'No peer wallets saved yet.'}</small>
+          </article>
         </div>
       </section>
       <section className="contentGrid" style={{ paddingTop: 0 }}>
@@ -1627,8 +1784,67 @@ function PortfolioLivePage(props:any) {
             </div>
             <table><thead><tr><th>Symbol</th><th>Open Qty</th><th>Avg Cost</th><th>Mark</th><th>Realized</th><th>Unrealized</th><th>Net</th></tr></thead><tbody>{pnlRows.length ? pnlRows.map((row) => <tr key={row.symbol}><td>{row.label}</td><td>{row.qty.toFixed(4)}</td><td>{usd(row.avgCost || null)}</td><td>{usd(row.mark || null)}</td><td className={row.realized>=0?'green':'red'}>{row.realized>=0?'+':''}{usd(row.realized)}</td><td className={row.unrealized>=0?'green':'red'}>{row.unrealized>=0?'+':''}{usd(row.unrealized)}</td><td className={row.net>=0?'green':'red'}>{row.net>=0?'+':''}{usd(row.net)}</td></tr>) : <tr><td colSpan={7}>No SoDEX fills found yet for this wallet, so there is no live PnL attribution to compute.</td></tr>}</tbody></table>
           </section>
+          <section className="market panel">
+            <div className="panelTitle">
+              <b>Counterfactual PnL</b>
+              <a>Skip-bad-trades overlay</a>
+            </div>
+            <div className="featureGrid" style={{ padding: 0, marginBottom: '14px' }}>
+              <article><b className={counterfactual.actualFinal>=0?'green':'red'}>{counterfactual.actualFinal>=0?'+':''}{usd(counterfactual.actualFinal)}</b><p>Actual replayed net</p></article>
+              <article><b className={counterfactual.filteredFinal>=0?'green':'red'}>{counterfactual.filteredFinal>=0?'+':''}{usd(counterfactual.filteredFinal)}</b><p>Filtered replayed net</p></article>
+              <article><b className={counterfactualDelta>=0?'green':'red'}>{counterfactualDelta>=0?'+':''}{usd(counterfactualDelta)}</b><p>Edge from skipping weak fills</p></article>
+            </div>
+            <div className="canvas" style={{ height: '170px', margin: 0 }}>
+              <svg viewBox={`0 0 ${counterWidth} ${counterHeight}`} preserveAspectRatio="none" className="chartSvg">
+                <polyline points={polylineFor(actualSeries)} fill="none" stroke="#ff5474" strokeWidth="1.9" />
+                <polyline points={polylineFor(filteredSeries)} fill="none" stroke="#31f78f" strokeWidth="1.9" strokeDasharray="3 2" />
+              </svg>
+            </div>
+            <div className="storyList" style={{ marginTop: '14px' }}>
+              {counterfactual.skipped.length ? counterfactual.skipped.slice(0, 6).map((row) => (
+                <article className="storyCard" key={row.symbol}>
+                  <b>{row.symbol}</b>
+                  <p>Skipped by replay because of: {row.reasons.join(' · ')}</p>
+                </article>
+              )) : <article className="storyCard"><b>No skipped trades yet</b><p>The replay did not find any fills that violated the current spread / confidence / signal filters.</p></article>}
+            </div>
+          </section>
         </div>
         <aside className="rightCol">
+          <section className="panel" style={{ padding: '16px' }}>
+            <div className="panelTitle">
+              <b>Smart Money Watch</b>
+              <a>{smartLoading ? 'Refreshing...' : smartMoney?.peers?.length ? `${smartMoney.peers.length} peers` : 'Custom cohort'}</a>
+            </div>
+            {smartError ? <div className="walletError" style={{ margin: '0 0 12px 0' }}>{smartError}</div> : null}
+            <div className="featureGrid" style={{ padding: 0, marginBottom: '14px' }}>
+              <article><b>{smartMoney?.scorecard?.peerCount || 0}</b><p>Peer wallets tracked</p></article>
+              <article><b>{usd(smartMoney?.scorecard?.avgPnl ?? null)}</b><p>Average peer PnL</p></article>
+              <article><b>{usd(smartMoney?.scorecard?.avgVolume ?? null)}</b><p>Average peer volume</p></article>
+            </div>
+            <div className="storyList">
+              {smartMoney?.consensus?.length ? smartMoney.consensus.slice(0, 5).map((row) => (
+                <article className="storyCard" key={row.venueSymbol}>
+                  <div className="storyMeta"><span>{row.symbol}</span><em>{row.bias}</em></div>
+                  <b>{row.traders} peers active</b>
+                  <p>Buy volume {usd(row.buyVolume)} · Sell volume {usd(row.sellVolume)} · Total {usd(row.totalVolume)}</p>
+                </article>
+              )) : <article className="storyCard"><b>No smart money cohort loaded</b><p>Save at least one peer wallet to turn on Smart Money Watch.</p></article>}
+            </div>
+          </section>
+          <section className="panel" style={{ padding: '16px' }}>
+            <div className="panelTitle">
+              <b>Trader Scorecard</b>
+              <a>Peer benchmark</a>
+            </div>
+            <div className="storyList">
+              {smartMoney?.user ? <>
+                <article className="storyCard"><b>PnL vs peer avg</b><p className={smartMoney.user.pnlVsPeerAvg>=0?'green':'red'}>{smartMoney.user.pnlVsPeerAvg>=0?'+':''}{usd(smartMoney.user.pnlVsPeerAvg)} relative to the saved cohort average.</p></article>
+                <article className="storyCard"><b>Volume vs peer avg</b><p className={smartMoney.user.volumeVsPeerAvg>=0?'green':'red'}>{smartMoney.user.volumeVsPeerAvg>=0?'+':''}{usd(smartMoney.user.volumeVsPeerAvg)} versus the tracked wallets.</p></article>
+                <article className="storyCard"><b>Rank surface</b><p>PnL rank: {smartMoney.user.pnlRank || 'outside cohort'} · Volume rank: {smartMoney.user.volumeRank || 'outside cohort'}.</p></article>
+              </> : <article className="storyCard"><b>No benchmark yet</b><p>Once peer wallets are saved, this scorecard compares the connected builder wallet against that live cohort.</p></article>}
+            </div>
+          </section>
           <section className="panel" style={{ padding: '16px' }}>
             <div className="panelTitle">
               <b>Recent Trades</b>

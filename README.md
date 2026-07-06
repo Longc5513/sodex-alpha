@@ -115,6 +115,11 @@ Reads live SoDEX account state by wallet:
 - API key readiness
 
 It also computes live PnL attribution when the queried wallet has actual SoDEX fills or trades.
+Wave 2 additions inside this screen:
+
+- Smart Money Watch for custom peer wallets
+- peer benchmark / trader scorecard
+- counterfactual PnL replay with skip-bad-trades overlay
 
 ### 6. Decision Log
 
@@ -143,6 +148,7 @@ This is useful both for judging and for builder transparency.
 | News execution bot | `/alerts` | News and macro to execution draft workflow |
 | Decision provenance | `/decision-log` | Explainability and audit trail |
 | Live venue state | `/portfolio-live` | Wallet-linked SoDEX account reads |
+| Smart money watch | `/api/smart-money` | Multi-wallet SoDEX peer watch and scorecard |
 | Diagnostics | `/diag` | Health checks for the stack |
 | SoSoValue research probe | `/ai-research` | Docs-aligned preset explorer for SoSoValue APIs |
 | Market API | `/api/market` | Server-side live market aggregation |
