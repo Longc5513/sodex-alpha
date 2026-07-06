@@ -63,8 +63,8 @@ const WATCHLIST = [
 ] as const;
 
 const INDEXES = [
-  { symbol: 'MAGI7', name: 'MAGI7.ssi Index', pair: 'ssiMAG7', sosoIndex: 'ssiMAG7', category: 'SSI Index', icon: 'M', logo: '/tokens/magi7.svg' },
-  { symbol: 'USSI', name: 'USSI Treasury Index', pair: 'ssiRWA', sosoIndex: 'ssiRWA', category: 'SSI Index', icon: 'U', logo: '/tokens/ussi.svg' }
+  { symbol: 'MAGI7', name: 'MAGI7.ssi Index', pair: 'MAG7ssi / USDC', sodex: 'vMAG7ssi_vUSDC', sosoIndex: 'ssiMAG7', category: 'SSI Index', icon: 'M', logo: '/tokens/magi7.svg' },
+  { symbol: 'USSI', name: 'USSI Treasury Index', pair: 'USSI / USDC', sodex: 'vUSSI_vUSDC', sosoIndex: 'ssiRWA', category: 'SSI Index', icon: 'U', logo: '/tokens/ussi.svg' }
 ] as const;
 
 type AnyRecord = Record<string, any>;
@@ -263,6 +263,32 @@ function indexFromSnapshot(item: (typeof INDEXES)[number], snapshot: AnyRecord |
   });
 }
 
+function indexFromVenue(item: (typeof INDEXES)[number], tickerRow: AnyRecord | undefined, chart: CandlePoint[], snapshot: AnyRecord | null) {
+  const price = pickNumber(tickerRow || {}, ['lastPx', 'lastPrice', 'last', 'price', 'close', 'c', 'markPrice', 'indexPrice', 'weightedAvgPrice']) ?? asNumber(snapshot?.price);
+  const venueChange = pickNumber(tickerRow || {}, ['changePct', 'priceChangePercent', 'priceChangePercentage', 'change24h', 'changePercent', 'P', 'priceChangePct']);
+  const change24h = venueChange !== null
+    ? (Math.abs(venueChange) > 1 ? venueChange : venueChange * 100)
+    : (asNumber(snapshot?.change_pct_24h) || 0) * 100;
+  const change7d = snapshot?.roi_7d !== undefined ? (asNumber(snapshot.roi_7d) || 0) * 100 : 0;
+  const volume24h = pickNumber(tickerRow || {}, ['quoteVolume', 'volumeUsd', 'volumeUSDC', 'volume24h', 'quoteVolume24h', 'q']);
+  return finishAsset({
+    symbol: item.symbol,
+    name: item.name,
+    pair: item.pair,
+    sodexSymbol: item.sodex,
+    logo: item.logo,
+    price,
+    change24h,
+    change7d,
+    volume24h,
+    marketCap: null,
+    category: item.category,
+    icon: item.icon,
+    spark: sparkFromChart(chart),
+    chart
+  });
+}
+
 export async function getMarket(): Promise<{ assets: Asset[]; overview: MarketOverview }> {
   const [tickers, currencyMap] = await Promise.all([getSodexTickers(), getSosoCurrencyDirectory()]);
   const assetPackets = await Promise.all(WATCHLIST.map(async (item) => {
@@ -276,11 +302,12 @@ export async function getMarket(): Promise<{ assets: Asset[]; overview: MarketOv
   }));
 
   const indexPackets = await Promise.all(INDEXES.map(async (item) => {
+    const tickerRow = tickers.find((row) => matchesSymbol(row, item.sodex, item.symbol));
     const [snapshot, chart] = await Promise.all([
       getSosoIndexSnapshot(item.sosoIndex).catch(() => null),
-      getSosoIndexKlines(item.sosoIndex, 36).catch(() => [])
+      getSodexKlines(item.sodex, 36).catch(() => [])
     ]);
-    return indexFromSnapshot(item, snapshot, chart);
+    return indexFromVenue(item, tickerRow, chart, snapshot);
   }));
 
   const assets = [...assetPackets, ...indexPackets];
@@ -311,7 +338,7 @@ function parseDepthRows(rows: any[]) {
 }
 
 export async function getMarketDetail(symbol: string): Promise<MarketDetail | null> {
-  const item = WATCHLIST.find((row) => row.symbol === symbol) || WATCHLIST.find((row) => row.sodex === symbol);
+  const item = WATCHLIST.find((row) => row.symbol === symbol) || WATCHLIST.find((row) => row.sodex === symbol) || INDEXES.find((row) => row.symbol === symbol) || INDEXES.find((row) => row.sodex === symbol);
   if (!item) return null;
   const [klinesPayload, orderbookPayload, tradesPayload, tickerPayload] = await Promise.all([
     fetchJson(`${SPOT_ENDPOINT}/markets/${encodeURIComponent(item.sodex)}/klines?interval=1h&limit=48`).catch(() => null),
