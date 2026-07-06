@@ -397,6 +397,9 @@ function ExecutionDesk(props:any) {
   const [newsState, setNewsState] = useState<{ lead: LiveNewsItem | null; macro: MacroEvent | null }>({ lead: null, macro: null });
 
   const asset = tradable.find((item: Asset) => item.symbol === symbol) || tradable[0] || null;
+  const liveOrderSymbol = asset?.sodexSymbol || (symbol === 'BTC' ? 'vBTC_vUSDC' : symbol === 'ETH' ? 'vETH_vUSDC' : symbol === 'SOL' ? 'vSOL_vUSDC' : symbol === 'LINK' ? 'vLINK_vUSDC' : symbol === 'SOSO' ? 'SOSO_USDC' : '');
+  const inferredAid = String(liveAccount?.state?.aid || '');
+  const activeAccountID = accountID || (inferredAid && inferredAid !== '0' ? inferredAid : '');
   useEffect(() => { if (asset?.symbol) setSymbol(asset.symbol); }, [asset?.symbol]);
   useEffect(() => {
     if (!symbol) return;
@@ -480,6 +483,9 @@ function ExecutionDesk(props:any) {
         liquidity: clamp((((bid[1] || 0) + (detail.orderbook.asks[index]?.[1] || 0)) / Math.max(detail.orderbook.asks[0]?.[1] || 1, 1)) * 100, 18, 100)
       }))
     : (asset ? buildDepth(asset, spreadPct) : []);
+  const topBid = detail?.orderbook?.bids?.[0]?.[0] || null;
+  const topAsk = detail?.orderbook?.asks?.[0]?.[0] || null;
+  const visibleDepthUsd = depth.reduce((sum, row) => sum + ((row.size || 0) * (((row.bid || 0) + (row.ask || 0)) / 2)), 0);
   const marketImpact = clamp((qty * price) / Math.max(asset?.volume24h || 200000, 1) * 100, 0.03, 4.5);
   const scenarioMove = detail?.klines?.length ? (detail.klines[detail.klines.length - 1].close / detail.klines[0].open) - 1 : (asset ? deriveScenarioMove(asset) : 0);
   const expectedEntry = price * (1 + (side === 'BUY' ? expectedSlippage / 100 : -expectedSlippage / 100));
@@ -596,10 +602,6 @@ function ExecutionDesk(props:any) {
     .sort((a, b) => b.score - a.score)[0];
   const botFillCount = botHistory.length;
   const botPnLHint = topBotPick?.item ? deriveScenarioMove(topBotPick.item) * 100 : 0;
-  const liveOrderSymbol = asset?.sodexSymbol || (symbol === 'BTC' ? 'vBTC_vUSDC' : symbol === 'ETH' ? 'vETH_vUSDC' : symbol === 'SOL' ? 'vSOL_vUSDC' : symbol === 'LINK' ? 'vLINK_vUSDC' : symbol === 'SOSO' ? 'SOSO_USDC' : '');
-
-  const inferredAid = String(liveAccount?.state?.aid || '');
-  const activeAccountID = accountID || (inferredAid && inferredAid !== '0' ? inferredAid : '');
   const browserWalletMatchesApiKey = wallet?.address && liveAccount?.configuredApiPublicKey ? wallet.address.toLowerCase() === liveAccount.configuredApiPublicKey.toLowerCase() : false;
   const canSubmitLive = Boolean(wallet?.address && liveOrderSymbol && activeAccountID);
   const liveQtyNum = parseNum(liveQuantity) || 0;
@@ -615,9 +617,6 @@ function ExecutionDesk(props:any) {
   const minQuantity = parseNum(liveMeta?.minQuantity) ?? 0;
   const maxVenueQuantity = parseNum(liveMeta?.maxQuantity) ?? 0;
   const availableTopSize = side === 'BUY' ? (detail?.orderbook?.asks?.[0]?.[1] || 0) : (detail?.orderbook?.bids?.[0]?.[1] || 0);
-  const topBid = detail?.orderbook?.bids?.[0]?.[0] || null;
-  const topAsk = detail?.orderbook?.asks?.[0]?.[0] || null;
-  const visibleDepthUsd = depth.reduce((sum, row) => sum + ((row.size || 0) * (((row.bid || 0) + (row.ask || 0)) / 2)), 0);
   const riskGateReasons = [
     !liveAccount?.accountReady ? 'Blocked: SoDEX account aid=0 or account not initialized.' : '',
     minNotional > 0 && orderNotional < minNotional ? `Blocked: order notional ${usd(orderNotional)} is below venue minNotional ${usd(minNotional)}.` : '',
