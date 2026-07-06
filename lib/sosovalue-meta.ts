@@ -10,17 +10,18 @@ export const SOSOVALUE_CONSOLE_URL = 'https://sosovalue.com/developer/dashboard'
 export const SOSOVALUE_DOCS_URL = 'https://sosovalue-1.gitbook.io/sosovalue-api-doc';
 
 export const SOSOVALUE_PRESETS: SosoPreset[] = [
-  { key: 'analysis-chart', title: 'Analysis Chart', path: '/analyses/{chart_name}', description: 'Chart data family from the official docs.', sampleParams: { chart_name: 'btc_price' } },
-  { key: 'currency-list', title: 'Currency List', path: '/currencies', description: 'Currency & pairs index.', sampleParams: { coin: 'BTC' } },
-  { key: 'currency-info', title: 'Currency Info', path: '/currencies/{coin}', description: 'Single currency detail view.', sampleParams: { coin: 'BTC' } },
-  { key: 'market-snapshot', title: 'Market Snapshot', path: '/market/snapshot', description: 'Snapshot summary for the live market rail.' },
-  { key: 'token-economics', title: 'Token Economics', path: '/tokens/{coin}/economics', description: 'Token economics and supply context.', sampleParams: { coin: 'BTC' } },
-  { key: 'historical-klines', title: 'Historical Klines', path: '/markets/{symbol}/klines', description: 'Price history for charts/backtests.', sampleParams: { symbol: 'vBTC_vUSDC' } },
+  { key: 'currency-list', title: 'Currency List', path: '/currencies', description: 'Currency directory from SoSoValue.' },
+  { key: 'currency-snapshot', title: 'Currency Snapshot', path: '/currencies/{currency_id}/market-snapshot', description: 'Single currency market snapshot.', sampleParams: { currency_id: '1673723677362319866' } },
+  { key: 'currency-klines', title: 'Currency Klines', path: '/currencies/{currency_id}/klines', description: 'Daily price history for a currency.', sampleParams: { currency_id: '1673723677362319866', interval: '1d', limit: 30 } },
+  { key: 'sector-spotlight', title: 'Sector Spotlight', path: '/currencies/sector-spotlight', description: 'Live SoSoValue sector rotation board.' },
+  { key: 'indices-list', title: 'Indices List', path: '/indices', description: 'Available SoSoValue indices.' },
+  { key: 'index-snapshot', title: 'Index Snapshot', path: '/indices/{index_ticker}/market-snapshot', description: 'Snapshot for SSI / MAGI7 style indices.', sampleParams: { index_ticker: 'ssiMAG7' } },
+  { key: 'index-klines', title: 'Index Klines', path: '/indices/{index_ticker}/klines', description: 'Historical index series.', sampleParams: { index_ticker: 'ssiMAG7', interval: '1d', limit: 30 } },
   { key: 'news-feed', title: 'News Feed', path: '/news/feed', description: 'General news feed rail.' },
   { key: 'hot-news', title: 'Hot News', path: '/news/hot', description: 'Trending headlines.' },
   { key: 'featured-news', title: 'Featured News', path: '/news/featured', description: 'Curated featured items.' },
   { key: 'news-search', title: 'News Search', path: '/news/search', description: 'Searchable research feed.', sampleParams: { keyword: 'bitcoin' } },
   { key: 'fundraising-list', title: 'Fundraising Projects', path: '/fundraising/projects', description: 'Project list from the fundraising section.' },
   { key: 'fundraising-detail', title: 'Fundraising Detail', path: '/fundraising/projects/{id}', description: 'Project detail page.', sampleParams: { id: 'btc-spot-etf' } },
-  { key: 'macro', title: 'Macro', path: '/macro', description: 'Macro dashboard and events.' }
+  { key: 'macro-events', title: 'Macro Events', path: '/macro/events', description: 'Upcoming macro events from SoSoValue.' }
 ];

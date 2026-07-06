@@ -4,11 +4,13 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { SOSOVALUE_CONSOLE_URL, SOSOVALUE_DOCS_URL, SOSOVALUE_PRESETS } from '../lib/sosovalue-meta';
 
 type Signal = 'BUY' | 'HOLD' | 'WATCH';
+type CandlePoint = { time: number; open: number; high: number; low: number; close: number; volume: number };
 type Asset = {
   symbol: string; name: string; pair: string; price: number | null; change24h: number; change7d: number;
   volume24h: number | null; marketCap: number | null; signal: Signal; confidence: number;
-  entry: number | null; stop: number | null; take: number | null; spark: number[]; category: string; icon: string;
+  entry: number | null; stop: number | null; take: number | null; spark: number[]; chart: CandlePoint[]; category: string; icon: string;
 };
+type MarketOverview = { totalMarketCap: number | null; totalVolume24h: number | null; btcDominance: number | null; breadthPct: number | null; leaders: string[] };
 type WalletState = { address: string; chainId: string; balance: string } | null;
 type PaperPosition = { symbol: string; side: 'BUY'|'SELL'; qty: number; entry: number; time: string };
 type AlertRule = { symbol: string; target: number; side: 'above'|'below'; id: string };
@@ -44,8 +46,10 @@ function MarketTable({assets,onPick,watchlist,toggleWatch}:{assets:Asset[];onPic
   return <section className="market panel"><div className="panelTitle"><b>Market Overview</b><div><button className="tabOn">Top Coins</button><button>SoSo Indexes</button><button>MAGI7</button><button>Trending</button></div></div><table><thead><tr><th>#</th><th>Coin</th><th>Price</th><th>24H %</th><th>7D %</th><th>Market Cap</th><th>24H Volume</th><th>Chart</th><th>Watch</th></tr></thead><tbody>{assets.slice(0,8).map((a,i)=><tr key={a.symbol} onClick={()=>onPick(a)}><td>{i+1}</td><td><Coin a={a}/></td><td>{usd(a.price)}</td><td className={a.change24h>=0?'green':'red'}>{pct(a.change24h)}</td><td className={a.change7d>=0?'green':'red'}>{pct(a.change7d)}</td><td>{usd(a.marketCap)}</td><td>{usd(a.volume24h)}</td><td><Spark data={a.spark}/></td><td><button className="miniBtn" onClick={(e)=>{e.stopPropagation();toggleWatch(a.symbol)}}>{watchlist.includes(a.symbol)?'★':'☆'}</button></td></tr>)}</tbody></table></section>
 }
 function Candles({active}:{active:Asset}){
-  const seed=Math.max(1,(active.price||100)/1000);
-  const candles=useMemo(()=>Array.from({length:56},(_,i)=>{const base=50+Math.sin(i/6+seed)*8+Math.cos(i/11)*7+i*.12; const open=base+Math.sin(i*1.2+seed)*2; const close=base+Math.cos(i*1.05+seed)*2.2; const high=Math.max(open,close)+1.8+(i%3)*.65; const low=Math.min(open,close)-1.7-(i%4)*.55; const volume=16+((i*17)%50); return{open,close,high,low,volume}}),[active.symbol,seed]);
+  const candles=useMemo(()=>active.chart?.length?active.chart.slice(-56):[],[active.chart]);
+  if(!candles.length){
+    return <section className="chartCard panel"><div className="chartTitle"><div><b>{active.pair}</b><span>{active.name} Price</span></div><div className="tabs"><button>Live</button></div></div><div className="chartPrice"><b>{usd(active.price)}</b><em className={active.change24h>=0?'green':'red'}>{pct(active.change24h)} (24H)</em></div><div className="canvas"><div className="panelTitle" style={{padding:'20px'}}><b>No live candles</b><a>Waiting for SoDEX / SoSoValue history</a></div></div></section>
+  }
   const highs=candles.map((c)=>c.high);
   const lows=candles.map((c)=>c.low);
   const maxHigh=Math.max(...highs);
@@ -237,10 +241,10 @@ function sosoHealthSummary(runtime: any) {
 }
 
 function LaunchPanel(props:any){
-  const {assets, main, onPick, wallet, watchlist, toggleWatch, positions, addTrade}=props;
+  const {assets, main, onPick, wallet, watchlist, toggleWatch, positions, addTrade, overview}=props;
   const focus = main || assets[0] || null;
-  const marketCap=assets.reduce((s:number,a:Asset)=>s+(a.marketCap||0),0), volume=assets.reduce((s:number,a:Asset)=>s+(a.volume24h||0),0);
-  return <><section className="topGrid"><div className="hero panel"><div><div className="launchRibbon">HACKATHON READY · SoSoValue x SoDEX · One operator launch desk</div><h1>SoDEX <span>Alpha Launch</span></h1><p>One-person on-chain finance business built on SoSoValue research, SoDEX market data, and fast paper execution.</p><div className="heroStats"><MiniStat label="Research" value="Live"/><MiniStat label="Monitoring" value="24/7"/><MiniStat label="Modules" value="Launch"/><MiniStat label="Wallet" value={wallet?'ON':'READY'}/></div><div className="launchCtas"><a className="miniBtn" href="/execution">Open Execution Desk</a><a className="miniBtn" href="/diag">Run Live Checks</a><a className="miniBtn" href={SOSOVALUE_CONSOLE_URL} target="_blank" rel="noreferrer">SoSoValue Console</a></div></div><div className="heroVisual"><div className="heroVisualFrame"><div className="heroBadge">SoSoValue intelligence</div><div className="heroCoin">SOSO</div><div className="heroGrid"><span>ETF flows</span><span>Macro</span><span>News</span><span>SSI</span></div><div className="heroBeam"/><div className="heroCard heroCardMain"><b>Live research rail</b><small>API-powered launch stack</small></div><div className="heroCard heroCardAlt"><b>ValueChain</b><small>Execution ready</small></div></div></div></div><div className="overview panel"><div className="panelTitle"><b>Market Overview</b><a>Live</a></div><div className="gauge"><div><b>78</b><span>Launch</span></div></div><ul><li><span>BTC Dominance</span><b>54.63%</b><em className="red">-0.21%</em></li><li><span>Total Market Cap</span><b>{usd(marketCap)}</b><em className="green">+1.45%</em></li><li><span>24H Volume</span><b>{usd(volume)}</b><em className="green">+6.21%</em></li></ul></div></section><section className="contentGrid"><div className="leftCol"><MarketTable assets={assets} onPick={onPick} watchlist={watchlist} toggleWatch={toggleWatch}/>{focus?<Candles active={focus}/>:<section className="panel" style={{padding:'18px'}}><div className="panelTitle"><b>Chart loading</b><a>Waiting for market data</a></div><p style={{color:'#aebacc'}}>Fetching SoDEX rows now. The launch chart will appear as soon as the live assets land.</p></section>}</div><aside className="rightCol"><Signals assets={assets}/><PortfolioPanel assets={assets} wallet={wallet} positions={positions}/><section className="index panel"><div className="panelTitle"><b>SoSoValue Index Stack</b><a>Research rail</a></div><h3>SSI / MAGI7 <em className="green">active</em></h3><Spark data={[10,12,14,16,19,17,21,25,28,31,29,35,38,41,39,44,49,53]} height={92}/></section></aside></section><section className="single"><div className="featureGrid"><article><b>Live feed</b><p>SoDEX market data keeps the watchlist, signals, and order routing honest.</p></article><article><b>Research stack</b><p>SoSoValue console links sit beside the terminal so the product story feels official.</p></article><article><b>Execution path</b><p>Paper trading and browser wallet flows prove the path from idea to action.</p></article></div><BasketBacktest assets={assets}/></section></>
+  const indexRail = assets.find((asset:Asset)=>asset.symbol==='MAGI7');
+  return <><section className="topGrid"><div className="hero panel"><div><div className="launchRibbon">HACKATHON READY · SoSoValue x SoDEX · One operator launch desk</div><h1>SoDEX <span>Alpha Launch</span></h1><p>One-person on-chain finance business built on SoSoValue research, SoDEX market data, and fast paper execution.</p><div className="heroStats"><MiniStat label="Research" value="Live"/><MiniStat label="Monitoring" value="24/7"/><MiniStat label="Modules" value="Launch"/><MiniStat label="Wallet" value={wallet?'ON':'READY'}/></div><div className="launchCtas"><a className="miniBtn" href="/execution">Open Execution Desk</a><a className="miniBtn" href="/diag">Run Live Checks</a><a className="miniBtn" href={SOSOVALUE_CONSOLE_URL} target="_blank" rel="noreferrer">SoSoValue Console</a></div></div><div className="heroVisual"><div className="heroVisualFrame"><div className="heroBadge">SoSoValue intelligence</div><div className="heroCoin">SOSO</div><div className="heroGrid"><span>ETF flows</span><span>Macro</span><span>News</span><span>SSI</span></div><div className="heroBeam"/><div className="heroCard heroCardMain"><b>Live research rail</b><small>API-powered launch stack</small></div><div className="heroCard heroCardAlt"><b>ValueChain</b><small>Execution ready</small></div></div></div></div><div className="overview panel"><div className="panelTitle"><b>Market Overview</b><a>Live</a></div><div className="gauge"><div><b>{overview?.breadthPct?Math.round(overview.breadthPct):0}</b><span>Breadth</span></div></div><ul><li><span>BTC Dominance</span><b>{overview?.btcDominance?.toFixed(2) || '—'}%</b><em className="green">{overview?.leaders?.join(' · ') || 'Live leaders'}</em></li><li><span>Total Market Cap</span><b>{usd(overview?.totalMarketCap ?? null)}</b><em>{overview?.totalMarketCap?'SoSoValue':'N/A'}</em></li><li><span>24H Volume</span><b>{usd(overview?.totalVolume24h ?? null)}</b><em>{overview?.totalVolume24h?'SoDEX':'N/A'}</em></li></ul></div></section><section className="contentGrid"><div className="leftCol"><MarketTable assets={assets} onPick={onPick} watchlist={watchlist} toggleWatch={toggleWatch}/>{focus?<Candles active={focus}/>:<section className="panel" style={{padding:'18px'}}><div className="panelTitle"><b>Chart loading</b><a>Waiting for market data</a></div><p style={{color:'#aebacc'}}>Fetching SoDEX rows now. The launch chart will appear as soon as the live assets land.</p></section>}</div><aside className="rightCol"><Signals assets={assets}/><PortfolioPanel assets={assets} wallet={wallet} positions={positions}/><section className="index panel"><div className="panelTitle"><b>SoSoValue Index Stack</b><a>Research rail</a></div><h3>{indexRail?.pair || 'SSI / MAGI7'} <em className={indexRail?.change24h && indexRail.change24h>=0?'green':'red'}>{indexRail?.change24h ? pct(indexRail.change24h) : 'live'}</em></h3>{indexRail?.spark?.length?<Spark data={indexRail.spark} height={92}/>:<p style={{color:'#9cabbe'}}>Index stream unavailable</p>}</section></aside></section><section className="single"><div className="featureGrid"><article><b>Live feed</b><p>SoDEX market data keeps the watchlist, signals, and order routing honest.</p></article><article><b>Research stack</b><p>SoSoValue console links sit beside the terminal so the product story feels official.</p></article><article><b>Execution path</b><p>Paper trading and browser wallet flows prove the path from idea to action.</p></article></div><BasketBacktest assets={assets}/></section></>
 }
 
 function JudgesPanel(props:any) {
@@ -315,30 +319,55 @@ function ExecutionDesk(props:any) {
   const [botBudget, setBotBudget] = useState(400);
   const [botInterval, setBotInterval] = useState(18);
   const [botStatus, setBotStatus] = useState('Idle');
+  const [detail, setDetail] = useState<any>(null);
 
   const asset = tradable.find((item: Asset) => item.symbol === symbol) || tradable[0] || null;
+  useEffect(() => { if (asset?.symbol) setSymbol(asset.symbol); }, [asset?.symbol]);
+  useEffect(() => {
+    if (!symbol) return;
+    let live = true;
+    fetch(`/api/market?symbol=${encodeURIComponent(symbol)}`, { cache: 'no-store' })
+      .then((res) => res.json())
+      .then((json) => { if (live) setDetail(json.detail || null); })
+      .catch(() => { if (live) setDetail(null); });
+    return () => { live = false; };
+  }, [symbol]);
   const price = asset?.price || 0;
   const qty = price > 0 ? budget / price : 0;
-  const spreadPct = asset ? deriveSpread(asset, asset.confidence) : 0.2;
+  const liveSpreadPct = detail?.spreadBps ? detail.spreadBps / 100 : null;
+  const spreadPct = liveSpreadPct ?? (asset ? deriveSpread(asset, asset.confidence) : 0.2);
   const expectedSlippage = clamp(spreadPct * (flowBias === 'Aggressive' ? 1.2 : flowBias === 'Patient' ? 0.75 : 1), 0.04, 1.1);
   const estFee = budget * 0.0008;
   const riskUsd = budget * (riskPct / 100);
   const stopDistance = price > 0 ? riskUsd / Math.max(qty, 0.000001) : 0;
   const takeDistance = stopDistance * (flowBias === 'Aggressive' ? 1.55 : flowBias === 'Patient' ? 2.25 : 1.85);
-  const depth = asset ? buildDepth(asset, spreadPct) : [];
+  const depth = detail?.orderbook?.bids?.length && detail?.orderbook?.asks?.length
+    ? detail.orderbook.bids.slice(0, 5).map((bid:[number,number], index:number) => ({
+        level: index + 1,
+        bid: bid[0],
+        ask: detail.orderbook.asks[index]?.[0] || bid[0],
+        size: (bid[1] || 0) + (detail.orderbook.asks[index]?.[1] || 0),
+        liquidity: clamp((((bid[1] || 0) + (detail.orderbook.asks[index]?.[1] || 0)) / Math.max(detail.orderbook.asks[0]?.[1] || 1, 1)) * 100, 18, 100)
+      }))
+    : (asset ? buildDepth(asset, spreadPct) : []);
   const marketImpact = clamp((qty * price) / Math.max(asset?.volume24h || 200000, 1) * 100, 0.03, 4.5);
-  const scenarioMove = asset ? deriveScenarioMove(asset) : 0;
+  const scenarioMove = detail?.klines?.length ? (detail.klines[detail.klines.length - 1].close / detail.klines[0].open) - 1 : (asset ? deriveScenarioMove(asset) : 0);
   const expectedEntry = price * (1 + (side === 'BUY' ? expectedSlippage / 100 : -expectedSlippage / 100));
   const scenarioPrice = price * (1 + scenarioMove);
   const grossScenarioPnl = side === 'BUY' ? (scenarioPrice - expectedEntry) * qty : (expectedEntry - scenarioPrice) * qty;
   const netScenarioPnl = grossScenarioPnl - estFee;
   const pnlPct = budget ? (netScenarioPnl / budget) * 100 : 0;
-  const fills = asset ? buildMockFills(asset, qty, side, spreadPct, flowBias) : [];
+  const fills = detail?.orderbook
+    ? (side === 'BUY' ? detail.orderbook.asks : detail.orderbook.bids).slice(0, flowBias === 'Aggressive' ? 3 : flowBias === 'Patient' ? 6 : 4).map((row:[number,number], index:number) => {
+        const size = Math.min(qty / (flowBias === 'Aggressive' ? 3 : flowBias === 'Patient' ? 6 : 4), row[1] || 0);
+        return { step: index + 1, price: row[0], size, notional: row[0] * size };
+      })
+    : (asset ? buildMockFills(asset, qty, side, spreadPct, flowBias) : []);
   const fillAvg = weightedAverage(fills.map((fill) => fill.price));
   const tradePlan = [
     { label: 'Research gate', value: asset?.signal || 'N/A', note: 'SoSoValue signal context' },
     { label: 'Entry size', value: qty.toFixed(4), note: 'Budget / price' },
-    { label: 'Spread', value: formatBp(spreadPct * 100), note: 'Approx. effective spread' },
+    { label: 'Spread', value: formatBp(spreadPct * 100), note: detail?.spreadBps ? 'Live SoDEX spread' : 'Derived spread' },
     { label: 'Impact', value: `${marketImpact.toFixed(2)}%`, note: 'Estimated market impact' }
   ];
 
@@ -475,7 +504,7 @@ function ExecutionDesk(props:any) {
           <section className="panel executionMain">
             <div className="panelTitle">
               <b>Order Flow</b>
-              <a>{asset?.symbol || '—'} depth</a>
+              <a>{detail?.trades?.length ? `${detail.trades.length} live trades` : `${asset?.symbol || '—'} depth`}</a>
             </div>
             <div className="depthLadder">
               {depth.map((level) => (
@@ -517,8 +546,8 @@ function ExecutionDesk(props:any) {
         <div className="executionGrid" style={{ marginTop: '14px' }}>
           <section className="panel executionMain">
             <div className="panelTitle">
-              <b>Mock Fills</b>
-              <a>{fills.length} simulated slices</a>
+              <b>Estimated Fills</b>
+              <a>{fills.length} live book slices</a>
             </div>
             <div className="fillTable">
               <div className="fillHeader"><span>Step</span><span>Price</span><span>Size</span><span>Notional</span></div>
@@ -746,8 +775,9 @@ function SimpleModule({title,assets}:{title:string;assets:Asset[]}){const copy= 
 
 export default function Terminal({initialMenu='Dashboard'}:{initialMenu?:string}){
   const [assets,setAssets]=useState<Asset[]>([]),[active,setActive]=useState<Asset|null>(null),[activeMenu,setActiveMenu]=useState(initialMenu),[wallet,setWallet]=useState<WalletState>(null),[walletError,setWalletError]=useState(''),[loading,setLoading]=useState(false);
+  const [overview,setOverview]=useState<MarketOverview | null>(null);
   const [watchlist,setWatchlist]=useLocal<string[]>('sodex.watchlist',['BTC','ETH','SOSO']); const [positions,setPositions]=useLocal<PaperPosition[]>('sodex.paper',[]); const [alerts,setAlerts]=useLocal<AlertRule[]>('sodex.alerts',[]);
-  const loadMarket=useCallback(async()=>{setLoading(true); try{const d=await fetch('/api/market',{cache:'no-store'}).then(r=>r.json()); const next=d.assets||[]; setAssets(next); setActive(prev=>next.find((a:Asset)=>a.symbol===prev?.symbol)||next[0]||null)}finally{setLoading(false)}},[]);
+  const loadMarket=useCallback(async()=>{setLoading(true); try{const d=await fetch('/api/market',{cache:'no-store'}).then(r=>r.json()); const next=d.assets||[]; setAssets(next); setOverview(d.overview || null); setActive(prev=>next.find((a:Asset)=>a.symbol===prev?.symbol)||next[0]||null)}finally{setLoading(false)}},[]);
   useEffect(()=>{loadMarket(); const t=setInterval(loadMarket,60000); return()=>clearInterval(t)},[loadMarket]);
   const toggleWatch=(s:string)=>setWatchlist(watchlist.includes(s)?watchlist.filter(x=>x!==s):[...watchlist,s]);
   const addTrade=(a:Asset)=>{ if(!a.price)return; setPositions([...positions,{symbol:a.symbol,side:a.signal==='HOLD'?'SELL':'BUY',qty:1,entry:a.price,time:new Date().toISOString()}]); setActiveMenu('Paper Trading'); };
@@ -755,7 +785,7 @@ export default function Terminal({initialMenu='Dashboard'}:{initialMenu?:string}
   const connect=async()=>{setWalletError(''); const eth=window.ethereum; if(!eth){setWalletError('No browser wallet detected. Install MetaMask or open in a Web3 browser.'); return} try{const acc=await eth.request({method:'eth_requestAccounts'}); if(acc?.[0]) await readWallet(acc[0])}catch(e:any){setWalletError(e?.message||'Wallet connection rejected.')}};
   const disconnect=()=>{setWallet(null); localStorage.removeItem('sodex.wallet.connected')};
   useEffect(()=>{const eth=window.ethereum; if(!eth)return; if(localStorage.getItem('sodex.wallet.connected')) eth.request({method:'eth_accounts'}).then((a:string[])=>a?.[0]&&readWallet(a[0])).catch(()=>{}); const onAcc=(a:string[])=>a?.[0]?readWallet(a[0]):disconnect(); const onChain=()=>wallet?.address&&readWallet(wallet.address); eth.on?.('accountsChanged',onAcc); eth.on?.('chainChanged',onChain); return()=>{eth.removeListener?.('accountsChanged',onAcc); eth.removeListener?.('chainChanged',onChain)}},[readWallet,wallet?.address]);
-  const main=active||assets[0]; const marketCap=assets.reduce((s,a)=>s+(a.marketCap||0),0), volume=assets.reduce((s,a)=>s+(a.volume24h||0),0); const props={assets,main,onPick:setActive,wallet,watchlist,toggleWatch,positions,setPositions,alerts,setAlerts,addTrade};
+  const main=active||assets[0]; const marketCap=assets.reduce((s,a)=>s+(a.marketCap||0),0), volume=assets.reduce((s,a)=>s+(a.volume24h||0),0); const props={assets,main,onPick:setActive,wallet,watchlist,toggleWatch,positions,setPositions,alerts,setAlerts,addTrade,overview};
   const page = activeMenu==='Launch'||activeMenu==='Dashboard'?<LaunchPanel {...props}/>:activeMenu==='Judges'?<JudgesPanel {...props}/>:activeMenu==='Execution'?<ExecutionDesk {...props}/>:activeMenu==='Markets'?<Markets {...props}/>:activeMenu==='Watchlist'?<Watchlist {...props}/>:activeMenu==='Alpha Signals'?<AlphaSignals {...props}/>:activeMenu==='Screener'?<Screener {...props}/>:activeMenu==='Heatmap'?<Heatmap {...props}/>:activeMenu==='Portfolio'?<PortfolioPage {...props}/>:activeMenu==='Paper Trading'?<PaperTrading {...props}/>:activeMenu==='Alerts'?<Alerts {...props}/>:activeMenu==='Diag'?<DiagPanel {...props}/>:activeMenu==='AI Research'||activeMenu==='News & Insights'?<ResearchPanel {...props}/>:['SoSoValue Indexes','On-Chain','Leaderboard','Settings'].includes(activeMenu)?<SimpleModule title={activeMenu} assets={assets}/>:main?<LaunchPanel {...props}/>:null;
-  return <main className="app"><aside className="sidebar"><div className="logo brandLogo"><img src="/sodex-logo.jpg" alt="SoDEX logo"/><p><b>SoDEX</b><span>ALPHA TERMINAL</span></p></div><nav>{nav.map((n,i)=><a key={n} href={pathOf(n)} onClick={(e)=>{e.preventDefault(); window.history.pushState(null,'',pathOf(n)); setActiveMenu(n)}} className={activeMenu===n?'active':''}><span>{navIcons[i]}</span>{n}{n==='Alpha Signals'&&<em>LIVE</em>}</a>)}</nav><div className="community"><small>OFFICIAL & COMMUNITY</small>{official.slice(0,4).map(([l,h])=><a key={l} href={h} target="_blank">{l}<span>↗</span></a>)}</div></aside><section className="desk"><header className="playerBar compactBar"><div className="theme launchTheme"><div className="disc">◎</div><p><b>SoSoValue Launch Rail</b><span>Research, execution, diagnostics in one desk</span></p></div><div className="actions"><button className="bell" onClick={loadMarket}>{loading?'↻':'⟳'}</button>{wallet?<button onClick={disconnect} className="wallet">{short(wallet.address)} · Disconnect</button>:<button onClick={connect} className="wallet">Connect Wallet</button>}<button className="sun">✦</button></div></header>{walletError&&<div className="walletError">{walletError}</div>}<div className="ticker">{assets.map(a=><button key={a.symbol} onClick={()=>setActive(a)}><b>{a.symbol}</b><span>{usd(a.price)}</span><em className={a.change24h>=0?'green':'red'}>{pct(a.change24h)}</em></button>)}<button><span>Market Cap</span><b>{usd(marketCap)}</b><em className="green">+1.45%</em></button><button><span>24H Vol</span><b>{usd(volume)}</b><em className="green">+6.21%</em></button><button><span>BTC.D</span><b>54.63%</b><em className="red">-0.21%</em></button></div>{page}</section></main>
+  return <main className="app"><aside className="sidebar"><div className="logo brandLogo"><img src="/sodex-logo.jpg" alt="SoDEX logo"/><p><b>SoDEX</b><span>ALPHA TERMINAL</span></p></div><nav>{nav.map((n,i)=><a key={n} href={pathOf(n)} onClick={(e)=>{e.preventDefault(); window.history.pushState(null,'',pathOf(n)); setActiveMenu(n)}} className={activeMenu===n?'active':''}><span>{navIcons[i]}</span>{n}{n==='Alpha Signals'&&<em>LIVE</em>}</a>)}</nav><div className="community"><small>OFFICIAL & COMMUNITY</small>{official.slice(0,4).map(([l,h])=><a key={l} href={h} target="_blank">{l}<span>↗</span></a>)}</div></aside><section className="desk"><header className="playerBar compactBar"><div className="theme launchTheme"><div className="disc">◎</div><p><b>SoSoValue Launch Rail</b><span>Research, execution, diagnostics in one desk</span></p></div><div className="actions"><button className="bell" onClick={loadMarket}>{loading?'↻':'⟳'}</button>{wallet?<button onClick={disconnect} className="wallet">{short(wallet.address)} · Disconnect</button>:<button onClick={connect} className="wallet">Connect Wallet</button>}<button className="sun">✦</button></div></header>{walletError&&<div className="walletError">{walletError}</div>}<div className="ticker">{assets.map(a=><button key={a.symbol} onClick={()=>setActive(a)}><b>{a.symbol}</b><span>{usd(a.price)}</span><em className={a.change24h>=0?'green':'red'}>{pct(a.change24h)}</em></button>)}<button><span>Market Cap</span><b>{usd(overview?.totalMarketCap ?? marketCap)}</b><em>{overview?.leaders?.[0] || 'live'}</em></button><button><span>24H Vol</span><b>{usd(overview?.totalVolume24h ?? volume)}</b><em>{overview?.breadthPct ? `${Math.round(overview.breadthPct)}% green` : 'live'}</em></button><button><span>BTC.D</span><b>{overview?.btcDominance ? `${overview.btcDominance.toFixed(2)}%` : '—'}</b><em>{overview?.leaders?.slice(0,2).join(' · ') || 'SoSoValue'}</em></button></div>{page}</section></main>
 }

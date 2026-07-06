@@ -67,7 +67,7 @@ export async function requestSosovalue(path: string, params: AnyRecord = {}) {
   const url = buildSosoUrl(path, params);
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (process.env.SOSOVALUE_API_KEY) {
-    headers['X-API-Key'] = process.env.SOSOVALUE_API_KEY;
+    headers['x-soso-api-key'] = process.env.SOSOVALUE_API_KEY;
   }
   const res = await fetch(url, { headers, cache: 'no-store' });
   const text = await res.text();

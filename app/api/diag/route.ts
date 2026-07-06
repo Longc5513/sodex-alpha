@@ -58,7 +58,7 @@ export async function GET(request: NextRequest) {
     probeJson('Spot book tickers', `${SPOT_ENDPOINT}/markets/bookTickers`),
     probeJson(`Spot orderbook ${symbol}`, `${SPOT_ENDPOINT}/markets/${encodeURIComponent(symbol)}/orderbook?limit=25`),
     probeJson(`Spot trades ${symbol}`, `${SPOT_ENDPOINT}/markets/${encodeURIComponent(symbol)}/trades?limit=25`),
-    probeJson('SoSoValue explorer', `${url.origin}/api/sosovalue?path=%2Fanalyses%2F%7Bchart_name%7D&params=${encodeURIComponent(JSON.stringify({ chart_name: 'btc_price' }))}&preset=analysis-chart`),
+    probeJson('SoSoValue explorer', `${url.origin}/api/sosovalue?path=%2Fcurrencies%2F%7Bcurrency_id%7D%2Fmarket-snapshot&params=${encodeURIComponent(JSON.stringify({ currency_id: '1673723677362319866' }))}&preset=currency-snapshot`),
     address ? probeJson(`Balances ${address}`, `${SPOT_ENDPOINT}/accounts/${encodeURIComponent(address)}/balances${accountQuery}`) : Promise.resolve(walletMissingProbe('Balances')),
     address ? probeJson(`Orders ${address}`, `${SPOT_ENDPOINT}/accounts/${encodeURIComponent(address)}/orders${symbolQuery}`) : Promise.resolve(walletMissingProbe('Orders')),
     address ? probeJson(`State ${address}`, `${SPOT_ENDPOINT}/accounts/${encodeURIComponent(address)}/state${accountQuery}`) : Promise.resolve(walletMissingProbe('State')),
