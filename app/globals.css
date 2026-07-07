@@ -176,13 +176,14 @@
 .quantDecisionRail b{font-size:12px;letter-spacing:.08em;text-transform:uppercase}
 .quantDecisionRail small{margin-left:auto;color:#6a6458;font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
 .quantDecisionDot{width:9px;height:9px;border-radius:50%;background:#1f9e61;box-shadow:0 0 0 rgba(31,158,97,.42);animation:quantLamp 1.4s ease-in-out infinite}
-.quantTree{position:relative;display:grid;grid-template-columns:120px 1fr 138px;gap:14px;align-items:stretch;min-height:340px}
-.quantTreeSvg{position:absolute;inset:16px 24px 16px 24px;width:calc(100% - 48px);height:calc(100% - 32px);pointer-events:none}
+.quantTree{position:relative;display:grid;grid-template-columns:108px minmax(0,1fr) 108px 128px;gap:12px;align-items:center;min-height:0;padding:4px 0}
+.quantTreeSvg{position:absolute;inset:20px 18px 20px 18px;width:calc(100% - 36px);height:calc(100% - 40px);pointer-events:none}
 .quantTreeSvg path{fill:none;stroke:rgba(108,103,94,.42);stroke-width:1.2;stroke-dasharray:4 3;animation:quantStroke 5s linear infinite}
 .quantTreeSvg .hub{fill:#1f9e61;filter:drop-shadow(0 0 8px rgba(31,158,97,.4))}
-.quantTreeCenter{display:grid;gap:12px;align-content:center}
-.quantTreeCol{display:grid;gap:12px}
-.quantNode{display:grid;gap:6px;align-content:center;justify-items:center;min-height:78px;padding:14px;border-radius:14px;border:1px solid rgba(0,0,0,.08);background:rgba(255,255,255,.52);text-align:center}
+.quantTreeCenter{display:grid;gap:10px;align-content:center}
+.quantTreeCol{display:grid;gap:10px;grid-auto-rows:minmax(60px,auto)}
+.quantTreeCol.end{grid-template-rows:minmax(60px,auto) minmax(88px,auto);align-content:space-between}
+.quantNode{display:grid;gap:6px;align-content:center;justify-items:center;min-height:60px;padding:12px;border-radius:14px;border:1px solid rgba(0,0,0,.08);background:rgba(255,255,255,.52);text-align:center}
 .quantNode small{font-size:10px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:#7d7669}
 .quantNode b{font-size:15px}
 .quantNode.live{box-shadow:0 0 0 0 rgba(255,175,73,.3),0 16px 34px rgba(0,0,0,.08);animation:quantPulse 1.4s ease-out infinite}
@@ -190,15 +191,15 @@
 .quantNode.info{background:linear-gradient(180deg,rgba(117,144,255,.18),rgba(255,255,255,.6))}
 .quantNode.muted{background:linear-gradient(180deg,rgba(120,123,139,.18),rgba(255,255,255,.58))}
 .quantNode.success{background:linear-gradient(180deg,rgba(82,209,126,.24),rgba(255,255,255,.62))}
-.quantConfidence{display:grid;place-items:center;min-height:104px;padding:14px;border-radius:18px;border:1px solid rgba(0,0,0,.1);background:linear-gradient(180deg,rgba(122,255,167,.18),rgba(255,255,255,.66));text-align:center}
-.quantConfidence b{font-size:40px;line-height:1;font-weight:950;color:#1f8d56}
+.quantConfidence{display:grid;place-items:center;min-height:90px;padding:12px;border-radius:18px;border:1px solid rgba(0,0,0,.1);background:linear-gradient(180deg,rgba(122,255,167,.18),rgba(255,255,255,.66));text-align:center}
+.quantConfidence b{font-size:30px;line-height:1;font-weight:950;color:#1f8d56}
 .quantConfidence span{margin-top:8px;font-size:11px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:#5d574c}
-.quantBridge{display:grid;place-items:center;font-size:12px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:#6b6458}
-.quantBridge.alt{padding:10px;border-radius:12px;background:rgba(0,0,0,.04);border:1px solid rgba(0,0,0,.06)}
-.quantPace{display:flex;justify-content:flex-end}
-.quantPace div{padding:14px 16px;border-radius:14px;border:1px solid rgba(0,0,0,.08);background:rgba(0,0,0,.04);text-align:right}
+.quantBridge{display:grid;place-items:center;font-size:11px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:#6b6458}
+.quantBridge.alt{padding:9px 10px;border-radius:12px;background:rgba(0,0,0,.04);border:1px solid rgba(0,0,0,.06)}
+.quantPace{display:flex;justify-content:stretch}
+.quantPace div{width:100%;padding:12px 14px;border-radius:14px;border:1px solid rgba(0,0,0,.08);background:rgba(0,0,0,.04);text-align:right}
 .quantPace small{display:block;font-size:10px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:#7a7366}
-.quantPace b{display:block;margin-top:6px;font-size:28px}
+.quantPace b{display:block;margin-top:6px;font-size:18px;line-height:1.1}
 .quantMatrix{display:grid;gap:8px}
 .quantMatrixRow{display:grid;grid-template-columns:90px repeat(3,minmax(0,1fr));gap:10px;align-items:center;padding:11px 12px;border-radius:12px;background:rgba(0,0,0,.04);border:1px solid rgba(0,0,0,.05);font-variant-numeric:tabular-nums}
 .quantMatrixRow strong{font-size:13px}
