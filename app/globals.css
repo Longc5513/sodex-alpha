@@ -117,6 +117,8 @@
 .headerBadges{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .headerBadges span{padding:8px 12px;border-radius:999px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03);font-size:11px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:#dbe5f8}
 .launchContent{padding-top:10px}
+.launchCommandDeck{padding:16px}
+.launchCommandGrid{padding:0;margin-top:6px}
 .launchSidePanel{padding:16px}
 .launchNarrative{padding:0;margin-top:4px}
 .quantBoard{position:relative;overflow:hidden;margin:22px 14px 10px;padding:18px;border:1px solid rgba(244,232,196,.18);border-radius:20px;background:linear-gradient(180deg,rgba(248,242,226,.96),rgba(240,232,210,.94));color:#202020;box-shadow:0 28px 80px rgba(0,0,0,.26),inset 0 0 0 1px rgba(255,255,255,.18)}

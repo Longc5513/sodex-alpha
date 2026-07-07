@@ -594,14 +594,121 @@ function QuantHeroBoard(props: any) {
   </section>;
 }
 
+function LaunchCommandDeck(props: any) {
+  const { assets, decisionLog, setDecisionLog, drafts, setDrafts } = props;
+  const [news, setNews] = useState<{ stories: LiveNewsItem[]; macroEvents: MacroEvent[]; ok?: boolean; errors?: string[] } | null>(null);
+  const [diag, setDiag] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
+  const leader = assets.slice().sort((a: Asset, b: Asset) => scoreBotCandidate(b, 'Research') - scoreBotCandidate(a, 'Research'))[0] || null;
+  const proof = diag?.probes || [];
+  const successfulProbes = proof.filter((row: any) => row.ok).length;
+  const activeStory = news?.stories?.[0] || null;
+
+  useEffect(() => {
+    let active = true;
+    fetch('/api/news-live', { cache: 'no-store' })
+      .then((res) => res.json())
+      .then((json) => { if (active) setNews(json); })
+      .catch(() => { if (active) setNews({ stories: [], macroEvents: [], ok: false, errors: ['news route failed'] }); });
+    fetch('/api/diag', { cache: 'no-store' })
+      .then((res) => res.json())
+      .then((json) => { if (active) setDiag(json); })
+      .catch(() => { if (active) setDiag(null); });
+    return () => { active = false; };
+  }, []);
+
+  const createCopilotDraft = () => {
+    if (!leader?.sodexSymbol || !leader.price) return;
+    setBusy(true);
+    const time = new Date().toISOString();
+    const regime = activeStory ? deriveNewsRegime(news?.stories || [], news?.macroEvents || [], leader) : { side: leader.signal === 'HOLD' ? 'SELL' : 'BUY', mode: 'LIMIT' as const, urgency: 0.48, volatilityRegime: 'Balanced Tape', notes: ['Live market candidate from SoDEX liquidity and SoSoValue ranking.'] };
+    const side = regime.side === 'SELL' ? 'SELL' as const : 'BUY' as const;
+    const notional = Math.max(250, Math.min((leader.volume24h || 250000) * 0.0025, 1800));
+    const qty = Number((notional / leader.price).toFixed(4));
+    const draft: ExecutionDraft = {
+      id: `${time}-${leader.symbol}-copilot-draft`,
+      createdAt: time,
+      origin: 'copilot',
+      symbol: leader.symbol,
+      sodexSymbol: leader.sodexSymbol,
+      side,
+      qty,
+      notional: Number((qty * leader.price).toFixed(2)),
+      confidence: leader.confidence,
+      mode: regime.mode,
+      regime: regime.volatilityRegime,
+      rationale: `${activeStory?.title || 'Live SoSoValue + SoDEX opportunity'} | ${regime.notes.join(' ')}`,
+      slices: buildDraftSlices(leader, side, qty, regime.mode, regime.urgency, regime.volatilityRegime),
+      status: 'draft'
+    };
+    setDrafts([draft, ...drafts].slice(0, 80));
+    setDecisionLog([{
+      id: `${time}-${leader.symbol}-copilot-log`,
+      time,
+      symbol: leader.symbol,
+      side,
+      mode: 'Launch Trade Copilot',
+      price: leader.price,
+      qty,
+      confidence: leader.confidence,
+      spreadBps: null,
+      topBid: null,
+      topAsk: null,
+      depthUsd: leader.volume24h || null,
+      signalReason: `Launch rail staged a live candidate using SoDEX liquidity ranking and current SoSoValue context.`,
+      newsTitle: activeStory?.title || '',
+      newsLink: activeStory?.link || '',
+      macroDate: news?.macroEvents?.[0]?.date || '',
+      macroEvents: news?.macroEvents?.[0]?.events || [],
+      riskGate: ['Launch Trade Copilot', regime.volatilityRegime, ...regime.notes],
+      outcome: 'Draft staged into Operator Lab'
+    }, ...decisionLog].slice(0, 80));
+    setTimeout(() => setBusy(false), 500);
+  };
+
+  return <section className="panel launchCommandDeck">
+    <div className="panelTitle">
+      <b>Launch Command Deck</b>
+      <a>{leader ? `best live candidate ${leader.symbol}` : 'waiting for market leader'}</a>
+    </div>
+    <div className="executionHeroGrid">
+      <article><small>SoDEX probes</small><b>{diag ? `${successfulProbes}/${proof.length}` : '—'}</b></article>
+      <article><small>News stories</small><b>{news?.stories?.length ?? '—'}</b></article>
+      <article><small>Macro events</small><b>{news?.macroEvents?.length ?? '—'}</b></article>
+      <article><small>Copilot drafts</small><b>{drafts.filter((row:ExecutionDraft) => row.origin === 'copilot' && row.status === 'draft').length}</b></article>
+    </div>
+    <div className="featureGrid launchCommandGrid">
+      <article>
+        <b>Stage Live SoDEX Draft</b>
+        <p>Create a venue-aware staged order plan from the strongest live candidate on the launch rail and push it straight into Operator Lab.</p>
+        <div className="launchCtas">
+          <button className="miniBtn" onClick={createCopilotDraft} disabled={!leader?.sodexSymbol || !leader?.price || busy}>{busy ? 'Staging...' : 'Stage Copilot Draft'}</button>
+          <a className="miniBtn" href="/operator-lab">Open Operator Lab</a>
+          <a className="miniBtn" href="/execution">Open Execution</a>
+        </div>
+      </article>
+      <article>
+        <b>Live Proof Surface</b>
+        <p>{activeStory?.title || 'Waiting for SoSoValue news route to return headlines.'}</p>
+        <div className="storyMeta"><span>{news?.ok === false ? 'degraded route' : 'live route'}</span><em>{news?.errors?.[0] || `${successfulProbes} SoDEX checks healthy`}</em></div>
+      </article>
+      <article>
+        <b>Why This Is Useful</b>
+        <p>This turns the launch screen into a working intake surface: discover a candidate, attach SoSoValue context, and stage a real SoDEX execution plan in one click.</p>
+      </article>
+    </div>
+  </section>;
+}
+
 function LaunchPanel(props:any){
-  const {assets, main, onPick, wallet, watchlist, toggleWatch, positions, addTrade, overview, decisionLog, drafts}=props;
+  const {assets, main, onPick, wallet, watchlist, toggleWatch, positions, addTrade, overview, decisionLog, drafts, setDrafts, setDecisionLog}=props;
   const focus = main || assets[0] || null;
   const indexRail = assets.find((asset:Asset)=>asset.symbol==='MAGI7');
   return <>
     <QuantHeroBoard assets={assets} main={main} overview={overview} wallet={wallet} decisionLog={decisionLog} drafts={drafts} positions={positions} />
     <section className="contentGrid launchContent">
       <div className="leftCol">
+        <LaunchCommandDeck assets={assets} decisionLog={decisionLog} setDecisionLog={setDecisionLog} drafts={drafts} setDrafts={setDrafts} />
         <MarketTable assets={assets} onPick={onPick} watchlist={watchlist} toggleWatch={toggleWatch}/>
         {focus?<Candles active={focus}/>:<section className="panel" style={{padding:'18px'}}><div className="panelTitle"><b>Chart loading</b><a>Waiting for market data</a></div><p style={{color:'#aebacc'}}>Fetching SoDEX rows now. The launch chart will appear as soon as the live assets land.</p></section>}
       </div>

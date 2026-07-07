@@ -48,14 +48,23 @@ export async function GET(request: NextRequest) {
   const url = new URL(request.url);
   const featuredPageSize = Number(url.searchParams.get('featuredPageSize') || '6');
 
-  const [hot, featured, macro] = await Promise.all([
+  const [hotResult, featuredResult, macroResult] = await Promise.allSettled([
     requestSosovalue('/news/hot'),
     requestSosovalue('/news/featured', { pageNum: 1, pageSize: featuredPageSize }),
     requestSosovalue('/macro/events')
   ]);
 
-  const hotStories = toArray(hot.data).map((row: any) => normalizeStory(row, 'hot'));
-  const featuredStories = toArray(featured.data).map((row: any) => normalizeStory(row, 'featured'));
+  const hotStories = hotResult.status === 'fulfilled' ? toArray(hotResult.value.data).map((row: any) => normalizeStory(row, 'hot')) : [];
+  const featuredStories = featuredResult.status === 'fulfilled' ? toArray(featuredResult.value.data).map((row: any) => normalizeStory(row, 'featured')) : [];
+  const macroEvents = macroResult.status === 'fulfilled' ? toArray(macroResult.value.data).map((row: any) => ({
+      date: row.date || '',
+      events: Array.isArray(row.events) ? row.events : []
+    })) : [];
+  const errors = [
+    hotResult.status === 'rejected' ? `hot: ${hotResult.reason?.message || 'failed'}` : '',
+    featuredResult.status === 'rejected' ? `featured: ${featuredResult.reason?.message || 'failed'}` : '',
+    macroResult.status === 'rejected' ? `macro: ${macroResult.reason?.message || 'failed'}` : ''
+  ].filter(Boolean);
   const stories = [...featuredStories, ...hotStories]
     .filter((story) => story.title)
     .sort((a, b) => (b.releaseTime || 0) - (a.releaseTime || 0));
@@ -63,12 +72,11 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     runtime: sosovalueRuntimeStatus(),
     updatedAt: new Date().toISOString(),
+    ok: errors.length === 0,
+    errors,
     stories,
     featured: featuredStories,
     hot: hotStories,
-    macroEvents: toArray(macro.data).map((row: any) => ({
-      date: row.date || '',
-      events: Array.isArray(row.events) ? row.events : []
-    }))
+    macroEvents
   });
 }
