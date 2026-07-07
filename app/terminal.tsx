@@ -390,22 +390,38 @@ function stageForCycle(confidence: number, spreadBps: number | null, hasDraft: b
   return 2;
 }
 
-function QuantCycleRail({ activeStage }: { activeStage: number }) {
+function QuantCycleRail({ activeStage, pulseStage }: { activeStage: number; pulseStage?: number }) {
   const stages = ['Scan', 'Detect', 'Validate', 'Size', 'Fill', 'Settle'];
-  return <div className="quantCycleRail">{stages.map((label, index) => <div key={label} className={`quantCycleStep ${activeStage === index + 1 ? 'on' : activeStage > index + 1 ? 'done' : ''}`}><small>#{index + 1}</small><b>{label}</b></div>)}</div>;
+  return <div className="quantCycleRail">{stages.map((label, index) => <div key={label} className={`quantCycleStep ${activeStage === index + 1 ? 'on' : activeStage > index + 1 ? 'done' : ''} ${pulseStage === index + 1 ? 'pulse' : ''}`}><small>#{index + 1}</small><b>{label}</b></div>)}</div>;
 }
 
-function QuantDecisionTree({ asset, confidence, spreadBps, candidate, newsTitle }: { asset: Asset | null; confidence: number; spreadBps: number | null; candidate: string; newsTitle: string }) {
+function QuantDecisionTree({ asset, confidence, spreadBps, candidate, newsTitle, pulseStage }: { asset: Asset | null; confidence: number; spreadBps: number | null; candidate: string; newsTitle: string; pulseStage: number }) {
   const nodeText = newsTitle ? 'News + macro catalyst' : 'Macro / SSI scan';
   const edgeLabel = spreadBps !== null ? `${formatBp(spreadBps)} spread` : 'spread loading';
   const paceLabel = spreadBps !== null ? `$${Math.max(48, Math.round(220 - spreadBps * 9))}/HR` : 'awaiting live spread';
+  const phaseText = ['scanning venue tape', 'classifying catalyst', 'validating venue spread', 'sizing route', 'filling staged plan', 'settling audit trail'][pulseStage - 1] || 'scanning venue tape';
   return <section className="quantCard quantTreeCard">
     <div className="quantCardHead"><b>Strategy Decision Tree</b><span>every trade traced</span></div>
+    <div className="quantDecisionRail">
+      <span className="quantDecisionDot" />
+      <b>{phaseText}</b>
+      <small>{asset?.symbol || 'market'} · {candidate}</small>
+    </div>
     <div className="quantTree">
+      <svg className="quantTreeSvg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+        <path d="M12 18 L12 82 L34 82" />
+        <path d="M12 32 L34 32" />
+        <path d="M34 50 L54 50" />
+        <path d="M54 50 L76 28" />
+        <path d="M54 50 L76 50" />
+        <path d="M54 50 L76 72" />
+        <path d="M76 50 L92 50" />
+        <circle cx="54" cy="50" r="2.6" className="hub" />
+      </svg>
       <div className="quantTreeCol">
-        <div className="quantNode">TICK</div>
-        <div className="quantNode">SCAN</div>
-        <div className="quantNode warn">CLASSIFY</div>
+        <div className={`quantNode ${pulseStage===1?'live':''}`}><small>#1</small><b>TICK</b></div>
+        <div className={`quantNode ${pulseStage===2?'live':''}`}><small>#2</small><b>SCAN</b></div>
+        <div className={`quantNode warn ${pulseStage===3?'live':''}`}><small>#3</small><b>CLASSIFY</b></div>
       </div>
       <div className="quantTreeCenter">
         <div className="quantConfidence"><small>edge conf</small><b>{confidence.toFixed(1)}%</b></div>
@@ -413,9 +429,9 @@ function QuantDecisionTree({ asset, confidence, spreadBps, candidate, newsTitle 
         <div className="quantBridge alt">{asset?.symbol || 'MARKET'} · {candidate}</div>
       </div>
       <div className="quantTreeCol">
-        <div className="quantNode info">REPRICE</div>
-        <div className="quantNode">FILL</div>
-        <div className="quantNode muted">HOLD</div>
+        <div className={`quantNode info ${pulseStage===4?'live':''}`}><small>#4</small><b>REPRICE</b></div>
+        <div className={`quantNode ${pulseStage===5?'live':''}`}><small>#5</small><b>FILL</b></div>
+        <div className={`quantNode muted ${pulseStage===6?'live':''}`}><small>#6</small><b>HOLD</b></div>
       </div>
       <div className="quantTreeCol end">
         <div className="quantNode success">PnL</div>
@@ -481,6 +497,16 @@ function QuantHeroBoard(props: any) {
   const focus = main || assets[0] || null;
   const leader = assets.slice().sort((a: Asset, b: Asset) => scoreBotCandidate(b, 'Research') - scoreBotCandidate(a, 'Research'))[0] || null;
   const cycleStage = stageForCycle(leader?.confidence || 0, null, Boolean(drafts?.length));
+  const [pulseStage, setPulseStage] = useState(Math.max(1, cycleStage));
+  useEffect(() => {
+    setPulseStage(Math.max(1, cycleStage));
+  }, [cycleStage]);
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setPulseStage((current) => current >= 6 ? Math.max(1, cycleStage) : current + 1);
+    }, 1600);
+    return () => clearInterval(timer);
+  }, [cycleStage]);
   const curve = buildDecisionCurve(decisionLog || []);
   const hasLiveAssets = assets.length > 0;
   const liveRank = overview?.breadthPct != null ? Math.max(1, 12 - Math.round(overview.breadthPct / 9)) : null;
@@ -498,7 +524,9 @@ function QuantHeroBoard(props: any) {
     liveRank ? `rotation #${liveRank}` : 'rotation loading',
     leader ? `leader ${leader.symbol}` : 'leader loading'
   ] : ['awaiting live market feed', 'waiting for SoDEX rows', 'waiting for SoSoValue context'];
+  const tapeAssets = assets.length ? [...assets.slice(0, 10), ...assets.slice(0, 10)] : [];
   return <section className="quantBoard">
+    <div className="quantBoardGlow" />
     <div className="quantHeader">
       <div><b>CLAUDE x QUANT</b><span>SoSoValue / SoDEX / builder desk</span></div>
       <div><span>markov</span><span>kelly</span><span>self-learn</span></div>
@@ -507,8 +535,15 @@ function QuantHeroBoard(props: any) {
     <div className="quantTopline">
       {topLine.map((item) => <span key={item}>{item}</span>)}
     </div>
+    <div className="quantBoardStatus">
+      <span className="quantStatusLamp" />
+      <b>operator loop live</b>
+      <small>{pulseStage <= cycleStage ? 'processing live tape' : 'awaiting next venue pulse'}</small>
+    </div>
     <div className="quantMarketTape">
-      {assets.length ? assets.slice(0, 5).map((asset: Asset) => <span key={asset.symbol}><b>{asset.symbol}</b> {asset.change24h >= 0 ? '▲' : '▼'} {pct(Math.abs(asset.change24h))}</span>) : <span><b>Live feed</b> waiting for `/api/market`</span>}
+      <div className="quantTapeTrack">
+        {tapeAssets.length ? tapeAssets.map((asset: Asset, index:number) => <span key={`${asset.symbol}-${index}`}><b>{asset.symbol}</b> {asset.change24h >= 0 ? '▲' : '▼'} {pct(Math.abs(asset.change24h))}</span>) : <span><b>Live feed</b> waiting for `/api/market`</span>}
+      </div>
     </div>
     <div className="quantTopGrid">
       <section className="quantCard metric">
@@ -538,9 +573,9 @@ function QuantHeroBoard(props: any) {
         {focus?.chart?.length ? <Candles active={focus} /> : <div className="quantChartFallback">Waiting for live SoDEX candles.</div>}
       </section>
     </div>
-    <QuantCycleRail activeStage={cycleStage} />
+    <QuantCycleRail activeStage={cycleStage} pulseStage={pulseStage} />
     <div className="quantBottomGrid">
-      <QuantDecisionTree asset={leader} confidence={leader?.confidence || 61} spreadBps={null} candidate={leader?.signal || 'WATCH'} newsTitle={decisionLog?.[0]?.newsTitle || ''} />
+      <QuantDecisionTree asset={leader} confidence={leader?.confidence || 61} spreadBps={null} candidate={leader?.signal || 'WATCH'} newsTitle={decisionLog?.[0]?.newsTitle || ''} pulseStage={pulseStage} />
       <div className="quantSideRail">
         <QuantRobustness assets={assets} />
         <section className="quantCard">
