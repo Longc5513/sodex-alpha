@@ -1,2 +1,2 @@
 import Terminal from '../terminal';
-export default function Page(){ return <Terminal initialMenu="News & Insights" /> }
+export default function Page(){ return <Terminal initialMenu="News Rail" /> }

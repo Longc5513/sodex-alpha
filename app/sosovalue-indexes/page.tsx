@@ -1,2 +1,2 @@
 import Terminal from '../terminal';
-export default function Page(){ return <Terminal initialMenu="SoSoValue Indexes" /> }
+export default function Page(){ return <Terminal initialMenu="Rebalance" /> }
