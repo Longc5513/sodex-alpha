@@ -69,6 +69,8 @@ It supports:
 - server-signed live route
 - browser-wallet EIP-712 flow
 - staged draft loading from other modules
+- Groq-generated execution drafts
+- TWAP / VWAP / POV / Iceberg style slice planning
 
 ### 3. Index Rebalance Executor
 
@@ -188,6 +190,14 @@ Optional server-side copilot support is now wired for:
 - fast action briefs built from SoSoValue news and SoDEX venue context
 
 Groq is only called from the server route. The key is not exposed to the browser.
+
+## Technical Inspiration
+
+One execution workflow reference used while improving this product was:
+
+- [`mansoor-mamnoon/limit-order-book`](https://github.com/mansoor-mamnoon/limit-order-book)
+
+That repo focuses on market microstructure, spread / impact analytics, and execution styles such as VWAP, TWAP, and POV. This app adapts that idea into a builder-friendly SoDEX workflow by turning live venue state into staged order drafts instead of only showing raw orderbook data.
 
 ## What Makes This Submission Strong
 

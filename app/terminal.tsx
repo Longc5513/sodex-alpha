@@ -20,7 +20,7 @@ type MacroEvent = { date: string; events: string[] };
 type PortfolioLiveData = { address: string; requestedAccountID: string; state: { user: string; aid: number; uid: number; balancesRaw: any[]; openOrdersRaw: any[] }; balances: { coin: string; total: number | null; available: number | null; locked: number | null }[]; openOrders: any[]; orderHistory: any[]; trades: any[]; feeRate: any; apiKeys: any[]; accountReady: boolean; serverSignerLoaded: boolean; configuredApiPublicKey?: string };
 type DecisionLogEntry = { id: string; time: string; symbol: string; side: 'BUY'|'SELL'|'HOLD'; mode: string; price: number; qty: number; confidence: number; spreadBps: number | null; topBid: number | null; topAsk: number | null; depthUsd: number | null; signalReason: string; newsTitle: string; newsLink: string; macroDate: string; macroEvents: string[]; riskGate: string[]; outcome: string };
 type DraftSlice = { step: number; kind: 'LIMIT' | 'MARKET'; price: number | null; qty: number; notional: number };
-type ExecutionDraft = { id: string; createdAt: string; origin: 'rebalance' | 'news-bot' | 'copilot'; symbol: string; sodexSymbol: string; side: 'BUY' | 'SELL'; qty: number; notional: number; confidence: number; mode: 'LIMIT' | 'MARKET'; regime: string; rationale: string; slices: DraftSlice[]; status: 'draft' | 'queued' | 'archived' };
+type ExecutionDraft = { id: string; createdAt: string; origin: 'rebalance' | 'news-bot' | 'copilot' | 'groq'; symbol: string; sodexSymbol: string; side: 'BUY' | 'SELL'; qty: number; notional: number; confidence: number; mode: 'LIMIT' | 'MARKET'; regime: string; rationale: string; slices: DraftSlice[]; status: 'draft' | 'queued' | 'archived' };
 type MarketDetail = { symbol: string; pair: string; price: number | null; spreadBps: number | null; orderbook: { bids: [number, number][]; asks: [number, number][] }; trades: { time: number; side: string; price: number; size: number }[]; klines: CandlePoint[] };
 type SmartMoneyPeer = { address: string; aid: number; uid: number; accountReady: boolean; openOrders: number; balances: number; trades: number; recentVolume: number; pnlTotal: number; scorecard: { timing: number; sizing: number; discipline: number; hitRate: number; pnlEfficiencyBps: number }; symbols: string[]; lastTradeAt: number; exposure: { symbol: string; label: string; qty: number; avgCost: number; mark: number; realized: number; unrealized: number; net: number; trades: number; volume: number }[] };
 type SmartMoneyConsensus = { symbol: string; venueSymbol: string; traders: number; buyVolume: number; sellVolume: number; totalVolume: number; bias: 'BUY' | 'SELL' | 'MIXED' };
@@ -318,6 +318,50 @@ function buildDraftSlices(asset: Asset, side: 'BUY' | 'SELL', qty: number, mode:
     const price = mode === 'MARKET' ? null : Number((base * (1 + bias * drift)).toFixed(4));
     return {
       step,
+      kind: mode,
+      price,
+      qty: sliceQty,
+      notional: Number((((price || base) * sliceQty) || 0).toFixed(2))
+    } satisfies DraftSlice;
+  }).filter((row) => row.qty > 0);
+}
+
+function buildAlgoSlices(
+  asset: Asset,
+  side: 'BUY' | 'SELL',
+  qty: number,
+  style: 'TWAP' | 'VWAP' | 'POV' | 'Iceberg',
+  mode: 'LIMIT' | 'MARKET',
+  urgency: number,
+  regime: string,
+  depthUsd: number
+) {
+  const base = asset.price || 0;
+  const spread = deriveSpread(asset, asset.confidence) / 100;
+  const sliceCount = style === 'Iceberg' ? 7 : style === 'POV' ? 5 : style === 'TWAP' ? 4 : 3;
+  const weights =
+    style === 'TWAP'
+      ? Array.from({ length: sliceCount }, () => 1 / sliceCount)
+      : style === 'VWAP'
+        ? Array.from({ length: sliceCount }, (_, index) => sliceCount - index)
+        : style === 'POV'
+          ? Array.from({ length: sliceCount }, (_, index) => Math.max(1, Math.round((depthUsd / 25000) / (index + 1))))
+          : [1, 1, 1, 1, 1, 1, 1];
+  const totalWeight = weights.reduce((sum, value) => sum + value, 0) || 1;
+  const bias = side === 'BUY' ? -1 : 1;
+  return Array.from({ length: sliceCount }, (_, index) => {
+    const weight = weights[index] / totalWeight;
+    const sliceQty = Number((qty * weight).toFixed(4));
+    const styleDrift =
+      style === 'Iceberg' ? spread * 0.18 * (index + 1) :
+      style === 'POV' ? spread * 0.24 * (index + 1) :
+      style === 'VWAP' ? spread * 0.14 * index :
+      spread * 0.3 * (index + 1);
+    const regimeDrift = regime === 'Macro Event Risk' ? styleDrift * 0.6 : styleDrift;
+    const urgencyDrift = mode === 'MARKET' ? 0 : regimeDrift * Math.max(0.25, 1 - urgency * 0.55);
+    const price = mode === 'MARKET' ? null : Number((base * (1 + bias * urgencyDrift)).toFixed(4));
+    return {
+      step: index + 1,
       kind: mode,
       price,
       qty: sliceQty,
@@ -1012,6 +1056,10 @@ function ExecutionDesk(props:any) {
   const [liveStatus, setLiveStatus] = useState('');
   const [liveError, setLiveError] = useState('');
   const [liveResult, setLiveResult] = useState<any>(null);
+  const [groqDraft, setGroqDraft] = useState<any>(null);
+  const [groqStatus, setGroqStatus] = useState<'idle' | 'loading' | 'ok' | 'error'>('idle');
+  const [groqError, setGroqError] = useState('');
+  const [algoStyle, setAlgoStyle] = useState<'TWAP' | 'VWAP' | 'POV' | 'Iceberg'>('VWAP');
   const [liveAccount, setLiveAccount] = useState<PortfolioLiveData | null>(null);
   const [livePreparing, setLivePreparing] = useState(false);
   const [liveMeta, setLiveMeta] = useState<any>(null);
@@ -1279,6 +1327,8 @@ function ExecutionDesk(props:any) {
     { title: 'Research context', body: newsState.lead?.title || `${asset?.signal || 'WATCH'} signal sourced from SoSoValue + SoDEX market state.` },
     { title: 'Route decision', body: liveRiskPassed ? 'Trade can be staged or submitted live once size and order type are confirmed.' : (riskGateReasons[0] || 'Waiting for account readiness.') }
   ];
+  const draftableNotional = Math.max(100, orderNotional || budget || 100);
+  const draftableQty = Math.max(0.0001, (orderType === 'MARKET' ? draftableNotional / Math.max(price, 1) : liveQtyNum || qty || draftableNotional / Math.max(price, 1)));
 
   const refreshLiveAccount = useCallback(async () => {
     if (!wallet?.address) return;
@@ -1293,6 +1343,105 @@ function ExecutionDesk(props:any) {
       }
     } catch {}
   }, [wallet?.address, accountID]);
+
+  const generateGroqExecutionDraft = useCallback(async () => {
+    if (!asset?.price || !liveOrderSymbol) {
+      setGroqError('This market is not ready for AI draft generation yet.');
+      setGroqStatus('error');
+      return;
+    }
+    setGroqStatus('loading');
+    setGroqError('');
+    try {
+      const res = await fetch('/api/ai-brief', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          asset: {
+            symbol: asset.symbol,
+            name: asset.name,
+            price: asset.price,
+            change24h: asset.change24h,
+            change7d: asset.change7d,
+            volume24h: asset.volume24h,
+            marketCap: asset.marketCap,
+            confidence: asset.confidence,
+            signal: asset.signal,
+            spreadBps: detail?.spreadBps ?? spreadPct * 100,
+            depthUsd: visibleDepthUsd || null
+          },
+          leadStory: newsState.lead,
+          macro: newsState.macro,
+          venue: {
+            topBid,
+            topAsk,
+            spreadBps: detail?.spreadBps ?? spreadPct * 100,
+            depthUsd: visibleDepthUsd || null
+          }
+        }),
+        cache: 'no-store'
+      });
+      const json = await res.json();
+      if (!json.ok || !json.parsed) throw new Error(json.error || 'Groq did not return a structured draft');
+      const parsed = json.parsed;
+      const aiSide: 'BUY' | 'SELL' = parsed.action === 'SELL' ? 'SELL' : 'BUY';
+      const aiMode: 'LIMIT' | 'MARKET' = /macro|event|breakout|urgent/i.test(String(parsed.regime || '')) ? 'MARKET' : orderType;
+      const aiConfidence = clamp(Number(parsed.confidence) || asset.confidence || 60, 20, 99);
+      const urgency = clamp(aiConfidence / 100, 0.35, 0.95);
+      const slices = buildAlgoSlices(asset, aiSide, draftableQty, algoStyle, aiMode, urgency, parsed.regime || 'Balanced Tape', visibleDepthUsd || 0);
+      const time = new Date().toISOString();
+      const rationaleParts = [
+        parsed.summary || '',
+        Array.isArray(parsed.thesis) ? parsed.thesis.join(' ') : '',
+        Array.isArray(parsed.executionPlan) ? parsed.executionPlan.join(' ') : '',
+        `Algo ${algoStyle}`
+      ].filter(Boolean);
+      const draft: ExecutionDraft = {
+        id: `${time}-${asset.symbol}-groq-draft`,
+        createdAt: time,
+        origin: 'groq',
+        symbol: asset.symbol,
+        sodexSymbol: liveOrderSymbol,
+        side: aiSide,
+        qty: Number(draftableQty.toFixed(4)),
+        notional: Number((draftableQty * asset.price).toFixed(2)),
+        confidence: aiConfidence,
+        mode: aiMode,
+        regime: parsed.regime || 'Balanced Tape',
+        rationale: rationaleParts.join(' | '),
+        slices,
+        status: 'draft'
+      };
+      setGroqDraft({ ...json, draft });
+      setGroqStatus('ok');
+      setDrafts([draft, ...drafts].slice(0, 80));
+      setDecisionLog([{
+        id: `${time}-${asset.symbol}-groq-log`,
+        time,
+        symbol: asset.symbol,
+        side: aiSide,
+        mode: `Groq Copilot / ${algoStyle}`,
+        price: asset.price,
+        qty: draft.qty,
+        confidence: aiConfidence,
+        spreadBps: detail?.spreadBps ?? null,
+        topBid,
+        topAsk,
+        depthUsd: visibleDepthUsd || null,
+        signalReason: parsed.summary || `${algoStyle} execution draft synthesized from Groq + SoSoValue + SoDEX context.`,
+        newsTitle: newsState.lead?.title || '',
+        newsLink: newsState.lead?.link || '',
+        macroDate: newsState.macro?.date || '',
+        macroEvents: newsState.macro?.events || [],
+        riskGate: [`Algo ${algoStyle}`, `Mode ${aiMode}`, `Fee-aware ${usd(feeAwareCost)}`],
+        outcome: 'Groq execution draft staged'
+      }, ...decisionLog.slice(0, 59)]);
+      setLiveStatus(`Groq staged a ${algoStyle} draft for ${asset.symbol}`);
+    } catch (err: any) {
+      setGroqError(err?.message || 'Failed to generate Groq execution draft');
+      setGroqStatus('error');
+    }
+  }, [asset, liveOrderSymbol, detail?.spreadBps, spreadPct, visibleDepthUsd, newsState.lead, newsState.macro, topBid, topAsk, orderType, draftableQty, algoStyle, drafts, setDrafts, setDecisionLog, decisionLog, feeAwareCost]);
 
   const submitLiveOrder = useCallback(async () => {
     setLiveError('');
@@ -1451,6 +1600,7 @@ function ExecutionDesk(props:any) {
             <p>Research signal, orderbook depth, fee-aware notional checks, and SoDEX submission path all sit in one execution rail.</p>
             <div className="executionHeroActions">
               <button className="miniBtn" onClick={submitLiveOrder} disabled={!canSubmitLive || livePreparing || !liveRiskPassed}>{livePreparing ? 'Submitting...' : 'Submit live route'}</button>
+              <button className="miniBtn" onClick={generateGroqExecutionDraft} disabled={groqStatus === 'loading' || !asset?.price}>{groqStatus === 'loading' ? 'Thinking...' : 'Generate Groq draft'}</button>
               <button className="miniBtn" onClick={refreshLiveAccount}>Refresh account</button>
               <a className="miniBtn" href="/portfolio-live">Open Portfolio Live</a>
             </div>
@@ -1525,6 +1675,14 @@ function ExecutionDesk(props:any) {
               <option value="Patient">Patient</option>
             </select>
           </label>
+          <label>Algo
+            <select value={algoStyle} onChange={(e) => setAlgoStyle(e.target.value as 'TWAP' | 'VWAP' | 'POV' | 'Iceberg')}>
+              <option value="VWAP">VWAP</option>
+              <option value="TWAP">TWAP</option>
+              <option value="POV">POV</option>
+              <option value="Iceberg">Iceberg</option>
+            </select>
+          </label>
         </div>
         <div className="featureGrid" style={{ marginTop: '14px' }}>
           <article><b>{usd(price)}</b><p>Mid price</p></article>
@@ -1535,6 +1693,35 @@ function ExecutionDesk(props:any) {
         <div className="featureGrid" style={{ marginTop: '14px' }}>
           {tradePlan.map((item) => <article key={item.label}><b>{item.value}</b><p>{item.label} · {item.note}</p></article>)}
         </div>
+        <div className="featureGrid" style={{ marginTop: '14px' }}>
+          <article><b>{algoStyle}</b><p>Execution algo selected for staged routing.</p></article>
+          <article><b>{usd(draftableNotional)}</b><p>Draft notional passed to the Groq planner.</p></article>
+          <article><b>{groqDraft?.model || 'Groq'}</b><p>Server-side model used for execution thesis.</p></article>
+          <article><b>{groqDraft?.parsed?.action || '—'}</b><p>Latest AI action bias.</p></article>
+        </div>
+        {groqError ? <div className="walletError" style={{ marginTop: '14px' }}>{groqError}</div> : null}
+        <section className="panel" style={{ padding: '16px', marginTop: '14px' }}>
+          <div className="panelTitle">
+            <b>Groq Draft Copilot</b>
+            <a>{groqStatus === 'loading' ? 'Synthesizing...' : groqDraft?.ms ? `${groqDraft.ms} ms` : 'SoSoValue + SoDEX + Groq'}</a>
+          </div>
+          <div className="featureGrid" style={{ padding: 0 }}>
+            <article><b>{groqDraft?.parsed?.regime || 'Balanced Tape'}</b><p>Market regime verdict</p></article>
+            <article><b>{groqDraft?.draft?.mode || orderType}</b><p>Route mode selected</p></article>
+            <article><b>{groqDraft?.draft?.slices?.length || 0}</b><p>Algo slices generated</p></article>
+            <article><b>{groqDraft?.draft?.origin ? groqDraft.draft.origin.toUpperCase() : 'AI'}</b><p>Draft source</p></article>
+          </div>
+          <div className="executionNarrative" style={{ marginTop: '14px' }}>
+            <article><b>AI Summary</b><p>{groqDraft?.parsed?.summary || 'Generate a Groq draft to turn live research and venue state into an execution-ready order plan.'}</p></article>
+            <article><b>Thesis</b><p>{Array.isArray(groqDraft?.parsed?.thesis) ? groqDraft.parsed.thesis.join(' · ') : 'No thesis yet.'}</p></article>
+            <article><b>Execution Plan</b><p>{Array.isArray(groqDraft?.parsed?.executionPlan) ? groqDraft.parsed.executionPlan.join(' · ') : `${algoStyle} planner is ready once the AI draft is generated.`}</p></article>
+          </div>
+          <div className="toolBar" style={{ paddingLeft: 0, paddingRight: 0 }}>
+            <button className="miniBtn" onClick={generateGroqExecutionDraft} disabled={groqStatus === 'loading' || !asset?.price}>{groqStatus === 'loading' ? 'Thinking...' : 'Refresh AI draft'}</button>
+            {groqDraft?.draft ? <button className="miniBtn" onClick={() => applyDraft(groqDraft.draft)}>Load AI draft into execution</button> : null}
+            <span className="miniBtn">Inspired by microstructure execution planning</span>
+          </div>
+        </section>
         <div className="executionGrid">
           <section className="panel executionMain">
             <div className="panelTitle">
@@ -1552,10 +1739,10 @@ function ExecutionDesk(props:any) {
               ))}
             </div>
             <div className="flowTimeline">
-              <span>SoSoValue signal</span>
-              <span>SoDEX spread check</span>
-              <span>Risk gate</span>
-              <span>Paper route</span>
+              <span>Research scan</span>
+              <span>Groq classify</span>
+              <span>{algoStyle} slice plan</span>
+              <span>SoDEX route</span>
             </div>
           </section>
           <section className="panel executionMain">
