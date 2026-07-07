@@ -196,8 +196,16 @@ Groq is only called from the server route. The key is not exposed to the browser
 One execution workflow reference used while improving this product was:
 
 - [`mansoor-mamnoon/limit-order-book`](https://github.com/mansoor-mamnoon/limit-order-book)
+- [`ent0n29/polybot`](https://github.com/ent0n29/polybot)
+- [`lihanyu81/polymarket_lp_tool`](https://github.com/lihanyu81/polymarket_lp_tool)
+- [`TauricResearch/TradingAgents`](https://github.com/TauricResearch/TradingAgents)
 
-That repo focuses on market microstructure, spread / impact analytics, and execution styles such as VWAP, TWAP, and POV. This app adapts that idea into a builder-friendly SoDEX workflow by turning live venue state into staged order drafts instead of only showing raw orderbook data.
+These repos influenced different layers of the app:
+
+- `limit-order-book`: spread / impact analytics and staged execution styles such as VWAP, TWAP, and POV
+- `polybot`: trader behavior intelligence and consensus-style market reading
+- `polymarket_lp_tool`: quote maintenance and reprice discipline for passive order workflows
+- `TradingAgents`: agent-style research condensation into operator-facing action briefs
 
 ## What Makes This Submission Strong
 

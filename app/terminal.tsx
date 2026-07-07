@@ -1417,6 +1417,25 @@ function ExecutionDesk(props:any) {
   ];
   const draftableNotional = Math.max(100, orderNotional || budget || 100);
   const draftableQty = Math.max(0.0001, (orderType === 'MARKET' ? draftableNotional / Math.max(price, 1) : liveQtyNum || qty || draftableNotional / Math.max(price, 1)));
+  const lpDecision = detail?.spreadBps != null
+    ? detail.spreadBps < 1
+      ? 'Widen quotes'
+      : detail.spreadBps < 3
+        ? 'Hold quote'
+        : detail.spreadBps < 8
+          ? 'Join top of book'
+          : 'Reprice inward'
+    : expectedSlippage > 0.45
+      ? 'Reprice inward'
+      : 'Hold quote';
+  const lpReason =
+    lpDecision === 'Widen quotes'
+      ? 'Spread is already compressed, so passive quotes should widen rather than chase.'
+      : lpDecision === 'Hold quote'
+        ? 'Spread is healthy and current placement should keep maker quality.'
+        : lpDecision === 'Join top of book'
+          ? 'Depth and spread support joining the current best bid/ask.'
+          : 'Execution friction is high enough that the quote should be pulled closer to the inside market.';
 
   const refreshLiveAccount = useCallback(async () => {
     if (!wallet?.address) return;
@@ -1893,6 +1912,25 @@ function ExecutionDesk(props:any) {
               </div>
             </div>
             <p className="riskNote">This panel keeps the demo honest: it shows whether the trade should be routed now, staged smaller, or held back.</p>
+          </section>
+        </div>
+        <div className="executionGrid" style={{ marginTop: '14px' }}>
+          <section className="panel executionMain">
+            <div className="panelTitle">
+              <b>LP Reprice Monitor</b>
+              <a>inspired by quote maintenance workflows</a>
+            </div>
+            <div className="featureGrid" style={{ padding: 0 }}>
+              <article><b>{lpDecision}</b><p>Current quote action</p></article>
+              <article><b>{detail?.spreadBps != null ? formatBp(detail.spreadBps) : formatBp(spreadPct * 100)}</b><p>Measured spread</p></article>
+              <article><b>{topBid && topAsk ? `${usd(topBid)} / ${usd(topAsk)}` : '—'}</b><p>Inside market</p></article>
+              <article><b>{usd(visibleDepthUsd || null)}</b><p>Visible depth feeding the quote rule</p></article>
+            </div>
+            <div className="executionNarrative" style={{ marginTop: '14px' }}>
+              <article><b>Rule verdict</b><p>{lpReason}</p></article>
+              <article><b>Builder utility</b><p>This turns passive order management into an explicit operator decision instead of leaving quote maintenance hidden behind the UI.</p></article>
+              <article><b>Reference inspiration</b><p>Concept adapted from limit-order maintenance and reprice logic seen in `polymarket_lp_tool`, but applied here to SoDEX execution planning.</p></article>
+            </div>
           </section>
         </div>
         <div className="executionGrid" style={{ marginTop: '14px' }}>
