@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { sodexRuntimeStatus } from '../../../lib/market';
+import { getMarket, sodexRuntimeStatus } from '../../../lib/market';
 import { SOSOVALUE_PRESETS, sosovalueRuntimeStatus } from '../../../lib/sosovalue';
 
 export const dynamic = 'force-dynamic';
@@ -53,7 +53,8 @@ export async function GET(request: NextRequest) {
   const accountQuery = accountID ? `?accountID=${encodeURIComponent(accountID)}` : '';
   const symbolQuery = accountID && symbol ? `?accountID=${encodeURIComponent(accountID)}&symbol=${encodeURIComponent(symbol)}` : symbol ? `?symbol=${encodeURIComponent(symbol)}` : accountQuery;
 
-  const probes = await Promise.all([
+  const [probes, market] = await Promise.all([
+    Promise.all([
     probeJson('Spot tickers', `${SPOT_ENDPOINT}/markets/tickers`),
     probeJson('Spot book tickers', `${SPOT_ENDPOINT}/markets/bookTickers`),
     probeJson(`Spot orderbook ${symbol}`, `${SPOT_ENDPOINT}/markets/${encodeURIComponent(symbol)}/orderbook?limit=25`),
@@ -63,11 +64,14 @@ export async function GET(request: NextRequest) {
     address ? probeJson(`Orders ${address}`, `${SPOT_ENDPOINT}/accounts/${encodeURIComponent(address)}/orders${symbolQuery}`) : Promise.resolve(walletMissingProbe('Orders')),
     address ? probeJson(`State ${address}`, `${SPOT_ENDPOINT}/accounts/${encodeURIComponent(address)}/state${accountQuery}`) : Promise.resolve(walletMissingProbe('State')),
     address ? probeJson(`Fee rate ${address}`, `${SPOT_ENDPOINT}/accounts/${encodeURIComponent(address)}/fee-rate${symbol ? `?symbol=${encodeURIComponent(symbol)}` : ''}${accountID ? `${symbol ? '&' : '?'}accountID=${encodeURIComponent(accountID)}` : ''}`) : Promise.resolve(walletMissingProbe('Fee rate'))
+  ]),
+    getMarket().catch(() => null)
   ]);
 
   return NextResponse.json({
     updatedAt: new Date().toISOString(),
     runtime: sodexRuntimeStatus(),
+    marketOverview: market?.overview || null,
     sosovalue: {
       ...sosovalueRuntimeStatus(),
       presets: SOSOVALUE_PRESETS.slice(0, 6),

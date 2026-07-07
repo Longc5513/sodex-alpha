@@ -119,6 +119,9 @@
 .launchContent{padding-top:10px}
 .launchCommandDeck{padding:16px}
 .launchCommandGrid{padding:0;margin-top:6px}
+.launchApiTray{padding:14px;margin-top:14px;background:linear-gradient(180deg,rgba(10,15,26,.06),rgba(255,255,255,.3))}
+.apiTrayList{grid-template-columns:repeat(3,minmax(0,1fr))}
+.apiTrayCard{min-height:140px}
 .launchSidePanel{padding:16px}
 .launchNarrative{padding:0;margin-top:4px}
 .quantBoard{position:relative;overflow:hidden;margin:22px 14px 10px;padding:18px;border:1px solid rgba(244,232,196,.18);border-radius:20px;background:linear-gradient(180deg,rgba(248,242,226,.96),rgba(240,232,210,.94));color:#202020;box-shadow:0 28px 80px rgba(0,0,0,.26),inset 0 0 0 1px rgba(255,255,255,.18)}
@@ -281,7 +284,7 @@
 @keyframes quantPulse{0%{box-shadow:0 0 0 0 rgba(255,179,69,.28)}100%{box-shadow:0 0 0 16px rgba(255,179,69,0)}}
 @keyframes quantStroke{0%{stroke-dashoffset:0}100%{stroke-dashoffset:-48}}
 @keyframes quantDraw{to{stroke-dashoffset:0}}
-@media(max-width:1200px){.executionGrid,.executionHero,.executionHeroGrid,.executionNarrative{grid-template-columns:1fr}.riskMeter{grid-template-columns:1fr}.riskRing{margin:auto}.flowTimeline{grid-template-columns:1fr 1fr}.judgeHeroCard{flex-direction:column}.heatmapToolbar,.heatmapSummary,.heatmapPulse,.quantMarketTape,.quantTopGrid,.quantBottomGrid{grid-template-columns:1fr}.heatmapStage{height:1100px}.quantTree{grid-template-columns:1fr}.headerBadges{display:none}}
+@media(max-width:1200px){.executionGrid,.executionHero,.executionHeroGrid,.executionNarrative,.apiTrayList{grid-template-columns:1fr}.riskMeter{grid-template-columns:1fr}.riskRing{margin:auto}.flowTimeline{grid-template-columns:1fr 1fr}.judgeHeroCard{flex-direction:column}.heatmapToolbar,.heatmapSummary,.heatmapPulse,.quantMarketTape,.quantTopGrid,.quantBottomGrid{grid-template-columns:1fr}.heatmapStage{height:1100px}.quantTree{grid-template-columns:1fr}.headerBadges{display:none}}
 @media(max-width:760px){.depthRow{grid-template-columns:76px minmax(0,1fr) 76px 48px}.launchRibbon{font-size:10px;letter-spacing:.08em}.launchCtas{gap:8px}.judgeHeroCard h3{font-size:20px}.fillHeader,.fillRow{grid-template-columns:56px minmax(0,1fr) 1fr 1fr}.pnlStats{grid-template-columns:1fr}.heroVisual{min-width:0;margin-top:20px}.heroVisualFrame{width:100%;max-width:320px}.compactBar{grid-template-columns:1fr}.launchTheme{margin-bottom:10px}.heatmapTreemap{height:340px}.heatmapTile{padding:10px}.heatmapTile b{font-size:18px}.heatmapStage{height:980px;min-height:980px}.heatmapTooltip{display:none}.quantBoard{margin:12px 8px 8px;padding:14px}.quantHeader{grid-template-columns:1fr}.quantTopline{gap:8px}.quantStatGrid,.quantMiniStats,.quantCycleRail{grid-template-columns:1fr 1fr}.quantBig{font-size:42px}.quantEdge{font-size:34px}.quantMarketTape span{font-size:11px}.quantMatrixRow{grid-template-columns:68px repeat(3,minmax(0,1fr));font-size:11px}.executionHeroMain h2{font-size:26px}.executionHero{padding:16px}.executionHeroGrid b{font-size:14px}}
 .coinIconImg,.assetIconImg{width:24px;height:24px;border-radius:50%;display:block;object-fit:cover;background:#101725;border:1px solid rgba(255,255,255,.08);box-shadow:0 0 14px rgba(255,148,81,.16)}
 .tokenFallback{width:24px;height:24px;border-radius:50%;display:grid!important;place-items:center!important;background:linear-gradient(135deg,#ff9f5c,#6c63ff 58%,#152238)!important;color:#fff!important;font-style:normal;font-size:10px;font-weight:900;letter-spacing:.03em;border:1px solid rgba(255,255,255,.1);box-shadow:0 0 14px rgba(128,109,255,.18)}

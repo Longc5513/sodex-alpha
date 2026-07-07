@@ -594,15 +594,63 @@ function QuantHeroBoard(props: any) {
   </section>;
 }
 
+function buildLaunchVerdict(assets: Asset[], overview: MarketOverview | null, news: { stories: LiveNewsItem[]; macroEvents: MacroEvent[] } | null) {
+  const leaders = assets.filter((asset) => asset.category.includes('SSI') || ['BTC', 'ETH', 'SOL', 'SOSO', 'MAGI7', 'USSI', 'LINK'].includes(asset.symbol));
+  const breadth = overview?.breadthPct ?? null;
+  const avgCoreMove = leaders.length ? leaders.reduce((sum, asset) => sum + asset.change24h, 0) / leaders.length : 0;
+  const hasMacroRisk = Boolean(news?.macroEvents?.[0]?.events?.some((event) => /cpi|fomc|nfp|powell|rate/i.test(String(event))));
+  const regime = breadth == null
+    ? 'Loading'
+    : hasMacroRisk
+      ? 'Macro Event Risk'
+      : breadth > 56 && avgCoreMove > 0.25
+        ? 'Risk-On Expansion'
+        : breadth < 40 && avgCoreMove < -0.2
+          ? 'Defensive Tape'
+          : 'Balanced Tape';
+  const thesis = regime === 'Risk-On Expansion'
+    ? 'Breadth and core leaders are aligned. Favor staged accumulation on liquid SoDEX names.'
+    : regime === 'Defensive Tape'
+      ? 'Breadth is weak. Prefer defense, trimming, or higher selectivity before routing.'
+      : regime === 'Macro Event Risk'
+        ? 'Upcoming macro event detected. Keep size smaller and prefer limit routing.'
+        : regime === 'Balanced Tape'
+          ? 'Mixed tape. Route only the names with strong depth, catalyst support, and clean spreads.'
+          : 'Waiting for enough live data to classify the tape honestly.';
+  const sectorBucket = new Map<string, { change: number; count: number }>();
+  for (const asset of assets) {
+    const key = heatmapGroupOf(asset);
+    const row = sectorBucket.get(key) || { change: 0, count: 0 };
+    row.change += asset.change24h;
+    row.count += 1;
+    sectorBucket.set(key, row);
+  }
+  const sectorLeaders = Array.from(sectorBucket.entries())
+    .map(([sector, row]) => ({ sector, score: row.count ? row.change / row.count : 0 }))
+    .sort((a, b) => b.score - a.score);
+  return {
+    regime,
+    thesis,
+    leaders: sectorLeaders.slice(0, 3),
+    laggards: sectorLeaders.slice(-2).reverse()
+  };
+}
+
 function LaunchCommandDeck(props: any) {
   const { assets, decisionLog, setDecisionLog, drafts, setDrafts } = props;
   const [news, setNews] = useState<{ stories: LiveNewsItem[]; macroEvents: MacroEvent[]; ok?: boolean; errors?: string[] } | null>(null);
   const [diag, setDiag] = useState<any>(null);
+  const [smartMoney, setSmartMoney] = useState<any>(null);
+  const [smartError, setSmartError] = useState('');
+  const [peerWallets] = useLocal<string[]>('sodex.smartmoney.peers', []);
   const [busy, setBusy] = useState(false);
   const leader = assets.slice().sort((a: Asset, b: Asset) => scoreBotCandidate(b, 'Research') - scoreBotCandidate(a, 'Research'))[0] || null;
   const proof = diag?.probes || [];
   const successfulProbes = proof.filter((row: any) => row.ok).length;
   const activeStory = news?.stories?.[0] || null;
+  const verdict = buildLaunchVerdict(assets, diag?.marketOverview || null, news);
+  const topConsensus = smartMoney?.consensus?.[0] || null;
+  const consensusAsset = topConsensus ? assets.find((asset: Asset) => asset.symbol === topConsensus.symbol || asset.sodexSymbol === topConsensus.venueSymbol) || null : null;
 
   useEffect(() => {
     let active = true;
@@ -616,6 +664,34 @@ function LaunchCommandDeck(props: any) {
       .catch(() => { if (active) setDiag(null); });
     return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    if (!peerWallets.length) {
+      setSmartMoney(null);
+      setSmartError('');
+      return;
+    }
+    let active = true;
+    const qs = new URLSearchParams({ peers: peerWallets.slice(0, 8).join(',') });
+    fetch(`/api/smart-money?${qs.toString()}`, { cache: 'no-store' })
+      .then((res) => res.json())
+      .then((json) => {
+        if (!active) return;
+        if (!json.ok) {
+          setSmartError(json.error || 'Smart money watch unavailable');
+          setSmartMoney(null);
+          return;
+        }
+        setSmartError('');
+        setSmartMoney(json.data || null);
+      })
+      .catch((err: any) => {
+        if (!active) return;
+        setSmartError(err?.message || 'Smart money watch unavailable');
+        setSmartMoney(null);
+      });
+    return () => { active = false; };
+  }, [peerWallets]);
 
   const createCopilotDraft = () => {
     if (!leader?.sodexSymbol || !leader.price) return;
@@ -666,6 +742,52 @@ function LaunchCommandDeck(props: any) {
     setTimeout(() => setBusy(false), 500);
   };
 
+  const createConsensusDraft = () => {
+    if (!topConsensus || !consensusAsset?.sodexSymbol || !consensusAsset.price) return;
+    const time = new Date().toISOString();
+    const notional = Math.max(300, Math.min(topConsensus.totalVolume * 0.0035, 2200));
+    const side = topConsensus.bias === 'SELL' ? 'SELL' as const : 'BUY' as const;
+    const qty = Number((notional / consensusAsset.price).toFixed(4));
+    const draft: ExecutionDraft = {
+      id: `${time}-${consensusAsset.symbol}-smartmoney-draft`,
+      createdAt: time,
+      origin: 'copilot',
+      symbol: consensusAsset.symbol,
+      sodexSymbol: consensusAsset.sodexSymbol,
+      side,
+      qty,
+      notional: Number((qty * consensusAsset.price).toFixed(2)),
+      confidence: Math.max(consensusAsset.confidence, Math.min(92, 58 + topConsensus.traders * 4)),
+      mode: topConsensus.totalVolume > 150000 ? 'MARKET' : 'LIMIT',
+      regime: `Smart Money ${topConsensus.bias}`,
+      rationale: `${topConsensus.traders} peer traders show ${topConsensus.bias} bias on ${consensusAsset.symbol} with ${usd(topConsensus.totalVolume)} total notional observed.`,
+      slices: buildDraftSlices(consensusAsset, side, qty, topConsensus.totalVolume > 150000 ? 'MARKET' : 'LIMIT', 0.58, 'Smart Money Consensus'),
+      status: 'draft'
+    };
+    setDrafts([draft, ...drafts].slice(0, 80));
+    setDecisionLog([{
+      id: `${time}-${consensusAsset.symbol}-smartmoney-log`,
+      time,
+      symbol: consensusAsset.symbol,
+      side,
+      mode: 'Smart Money Consensus',
+      price: consensusAsset.price,
+      qty,
+      confidence: draft.confidence,
+      spreadBps: null,
+      topBid: null,
+      topAsk: null,
+      depthUsd: topConsensus.totalVolume || null,
+      signalReason: `Peer cohort consensus from /api/smart-money favored ${topConsensus.bias} with ${topConsensus.traders} traders in agreement.`,
+      newsTitle: activeStory?.title || '',
+      newsLink: activeStory?.link || '',
+      macroDate: news?.macroEvents?.[0]?.date || '',
+      macroEvents: news?.macroEvents?.[0]?.events || [],
+      riskGate: ['Smart Money Watch', `${topConsensus.traders} peers`, `${usd(topConsensus.totalVolume)} consensus volume`],
+      outcome: 'Consensus draft staged into Operator Lab'
+    }, ...decisionLog].slice(0, 80));
+  };
+
   return <section className="panel launchCommandDeck">
     <div className="panelTitle">
       <b>Launch Command Deck</b>
@@ -677,6 +799,39 @@ function LaunchCommandDeck(props: any) {
       <article><small>Macro events</small><b>{news?.macroEvents?.length ?? '—'}</b></article>
       <article><small>Copilot drafts</small><b>{drafts.filter((row:ExecutionDraft) => row.origin === 'copilot' && row.status === 'draft').length}</b></article>
     </div>
+    <div className="featureGrid launchCommandGrid">
+      <article>
+        <b>Regime Verdict</b>
+        <p>{verdict.thesis}</p>
+        <div className="storyMeta"><span>{verdict.regime}</span><em>{verdict.leaders.map((row) => row.sector).join(' · ') || 'sector rotation loading'}</em></div>
+      </article>
+      <article>
+        <b>Sector Rotation</b>
+        <p>Leaders: {verdict.leaders.map((row) => `${row.sector} ${pct(row.score)}`).join(' · ') || '—'}</p>
+        <div className="storyMeta"><span>Laggards</span><em>{verdict.laggards.map((row) => `${row.sector} ${pct(row.score)}`).join(' · ') || '—'}</em></div>
+      </article>
+      <article>
+        <b>Smart Money Consensus</b>
+        <p>{topConsensus ? `${topConsensus.symbol} has ${topConsensus.bias} bias from ${topConsensus.traders} peer traders, with ${usd(topConsensus.totalVolume)} total observed notional.` : peerWallets.length ? (smartError || 'Loading peer consensus...') : 'Add peer wallets in Portfolio Live to unlock consensus-based draft generation.'}</p>
+        <div className="launchCtas">
+          <button className="miniBtn" onClick={createConsensusDraft} disabled={!topConsensus || !consensusAsset?.price}>Stage Consensus Draft</button>
+          <a className="miniBtn" href="/portfolio-live">Manage Peer Wallets</a>
+        </div>
+      </article>
+    </div>
+    <section className="panel launchApiTray">
+      <div className="panelTitle">
+        <b>API Visibility Tray</b>
+        <a>judge-verifiable live plumbing</a>
+      </div>
+      <div className="storyList apiTrayList">
+        {proof.slice(0, 6).map((probe: any) => <article className="storyCard apiTrayCard" key={probe.name}>
+          <div className="storyMeta"><span>{probe.ok ? 'OK' : 'WARN'}</span><em>{probe.ms} ms</em></div>
+          <b>{probe.name}</b>
+          <p>{probe.preview}</p>
+        </article>)}
+      </div>
+    </section>
     <div className="featureGrid launchCommandGrid">
       <article>
         <b>Stage Live SoDEX Draft</b>
