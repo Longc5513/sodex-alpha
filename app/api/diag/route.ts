@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getMarket, sodexRuntimeStatus } from '../../../lib/market';
+import { groqRuntimeStatus } from '../../../lib/groq';
 import { SOSOVALUE_PRESETS, sosovalueRuntimeStatus } from '../../../lib/sosovalue';
 
 export const dynamic = 'force-dynamic';
@@ -71,6 +72,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     updatedAt: new Date().toISOString(),
     runtime: sodexRuntimeStatus(),
+    groq: groqRuntimeStatus(),
     marketOverview: market?.overview || null,
     sosovalue: {
       ...sosovalueRuntimeStatus(),

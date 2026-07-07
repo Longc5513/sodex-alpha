@@ -375,6 +375,14 @@ function sosoHealthSummary(runtime: any) {
   ];
 }
 
+function groqHealthSummary(runtime: any) {
+  return [
+    { label: 'Groq API key', value: runtime?.hasApiKey ? 'loaded' : 'missing' },
+    { label: 'Groq model', value: runtime?.model || 'not set' },
+    { label: 'Base URL', value: runtime?.baseUrl || 'https://api.groq.com/openai/v1' }
+  ];
+}
+
 function buildDecisionCurve(rows: DecisionLogEntry[]) {
   if (!rows.length) return [];
   const ordered = rows.slice().reverse();
@@ -1765,16 +1773,22 @@ function DiagPanel(props:any){
   const probes = diag?.probes || [];
   const runtimeCards = apiHealthSummary(diag?.runtime);
   const sosoCards = sosoHealthSummary(diag?.sosovalue);
-  return <div className="single"><section className="panel" style={{padding:'18px'}}><div className="panelTitle"><b>Diagnostics</b><a>{loading?'Refreshing...':'Live checks'}</a></div><div className="featureGrid">{runtimeCards.map(card=><article key={card.label}><b>{card.label}</b><p>{card.value}</p></article>)}</div><div className="featureGrid" style={{marginTop:'14px'}}>{sosoCards.map(card=><article key={card.label}><b>{card.label}</b><p>{card.value}</p></article>)}</div>{error&&<div className="walletError">{error}</div>}<div className="toolBar" style={{paddingLeft:0, paddingRight:0}}><button className="miniBtn" onClick={runDiag}>Run full check</button><span className="miniBtn">Wallet {wallet?short(wallet.address):'not connected'}</span></div><table><thead><tr><th>Probe</th><th>Status</th><th>Latency</th><th>Preview</th></tr></thead><tbody>{probes.map((probe:any)=><tr key={probe.name}><td>{probe.name}</td><td className={probe.ok?'green':'red'}>{probe.ok?'OK':'FAIL'}</td><td>{probe.ms} ms</td><td>{probe.preview}</td></tr>)}</tbody></table><div className="featureGrid" style={{marginTop:'14px'}}><article><b>SoSoValue</b><p>{props.assets?.length || 0} live market rows are loaded into the launch page with the research rail beside them.</p></article><article><b>SoDEX</b><p>Public market endpoints, account readiness, and paper-trading flow are all wired into one terminal.</p></article><article><b>Demo ready</b><p>Use this screen to prove the product is alive before you hand it to the review panel.</p></article></div></section></div>
+  const groqCards = groqHealthSummary(diag?.groq);
+  return <div className="single"><section className="panel" style={{padding:'18px'}}><div className="panelTitle"><b>Diagnostics</b><a>{loading?'Refreshing...':'Live checks'}</a></div><div className="featureGrid">{runtimeCards.map(card=><article key={card.label}><b>{card.label}</b><p>{card.value}</p></article>)}</div><div className="featureGrid" style={{marginTop:'14px'}}>{sosoCards.map(card=><article key={card.label}><b>{card.label}</b><p>{card.value}</p></article>)}</div><div className="featureGrid" style={{marginTop:'14px'}}>{groqCards.map(card=><article key={card.label}><b>{card.label}</b><p>{card.value}</p></article>)}</div>{error&&<div className="walletError">{error}</div>}<div className="toolBar" style={{paddingLeft:0, paddingRight:0}}><button className="miniBtn" onClick={runDiag}>Run full check</button><span className="miniBtn">Wallet {wallet?short(wallet.address):'not connected'}</span></div><table><thead><tr><th>Probe</th><th>Status</th><th>Latency</th><th>Preview</th></tr></thead><tbody>{probes.map((probe:any)=><tr key={probe.name}><td>{probe.name}</td><td className={probe.ok?'green':'red'}>{probe.ok?'OK':'FAIL'}</td><td>{probe.ms} ms</td><td>{probe.preview}</td></tr>)}</tbody></table><div className="featureGrid" style={{marginTop:'14px'}}><article><b>SoSoValue</b><p>{props.assets?.length || 0} live market rows are loaded into the launch page with the research rail beside them.</p></article><article><b>SoDEX</b><p>Public market endpoints, account readiness, and paper-trading flow are all wired into one terminal.</p></article><article><b>Groq</b><p>Execution thesis generation now runs server-side so the copilot can summarize live research without exposing secrets to the browser.</p></article></div></section></div>
 }
 
 function ResearchPanel(props:any) {
+  const activeAsset = props.main || props.assets?.[0] || null;
   const [presetKey, setPresetKey] = useState(SOSOVALUE_PRESETS[0]?.key || '');
   const [path, setPath] = useState(SOSOVALUE_PRESETS[0]?.path || '/analyses/{chart_name}');
   const [paramsText, setParamsText] = useState(JSON.stringify(SOSOVALUE_PRESETS[0]?.sampleParams || { chart_name: 'btc_price' }, null, 2));
   const [output, setOutput] = useState<any>(null);
   const [status, setStatus] = useState<'idle' | 'loading' | 'ok' | 'error'>('idle');
   const [error, setError] = useState('');
+  const [newsState, setNewsState] = useState<{ lead: LiveNewsItem | null; macro: MacroEvent | null }>({ lead: null, macro: null });
+  const [brief, setBrief] = useState<any>(null);
+  const [briefStatus, setBriefStatus] = useState<'idle' | 'loading' | 'ok' | 'error'>('idle');
+  const [briefError, setBriefError] = useState('');
 
   useEffect(() => {
     const preset = SOSOVALUE_PRESETS.find((item) => item.key === presetKey);
@@ -1805,6 +1819,65 @@ function ResearchPanel(props:any) {
     runProbe();
   }, [runProbe]);
 
+  useEffect(() => {
+    let active = true;
+    fetch('/api/news-live', { cache: 'no-store' })
+      .then((res) => res.json())
+      .then((json) => {
+        if (!active) return;
+        setNewsState({
+          lead: json?.featured?.[0] || json?.stories?.[0] || null,
+          macro: json?.macroEvents?.[0] || null
+        });
+      })
+      .catch(() => {
+        if (!active) return;
+        setNewsState({ lead: null, macro: null });
+      });
+    return () => { active = false; };
+  }, []);
+
+  const runBrief = useCallback(async () => {
+    if (!activeAsset) return;
+    setBriefStatus('loading');
+    setBriefError('');
+    try {
+      const res = await fetch('/api/ai-brief', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          asset: {
+            symbol: activeAsset.symbol,
+            name: activeAsset.name,
+            price: activeAsset.price,
+            change24h: activeAsset.change24h,
+            change7d: activeAsset.change7d,
+            volume24h: activeAsset.volume24h,
+            marketCap: activeAsset.marketCap,
+            confidence: activeAsset.confidence,
+            signal: activeAsset.signal
+          },
+          leadStory: newsState.lead,
+          macro: newsState.macro,
+          venue: {
+            spreadBps: deriveSpread(activeAsset, activeAsset.confidence) * 100,
+            depthUsd: activeAsset.volume24h ? Math.round(activeAsset.volume24h * 0.0025) : null,
+            topBid: activeAsset.price ? Number((activeAsset.price * 0.9992).toFixed(4)) : null,
+            topAsk: activeAsset.price ? Number((activeAsset.price * 1.0008).toFixed(4)) : null
+          }
+        }),
+        cache: 'no-store'
+      });
+      const json = await res.json();
+      setBrief(json);
+      setBriefStatus(json.ok ? 'ok' : 'error');
+      if (!json.ok) setBriefError(json.error || 'Groq brief failed');
+    } catch (err: any) {
+      setBriefStatus('error');
+      setBriefError(err?.message || 'Groq brief failed');
+    }
+  }, [activeAsset, newsState.lead, newsState.macro]);
+
   const runtime = output?.runtime || {};
   const result = output?.result || {};
   const safeData = result?.data;
@@ -1820,6 +1893,11 @@ function ResearchPanel(props:any) {
           <article><b>{runtime.hasBaseUrl ? 'Connected' : 'Not configured'}</b><p>API base URL</p></article>
           <article><b>{runtime.hasApiKey ? 'Loaded' : 'Missing'}</b><p>API key</p></article>
           <article><b>{SOSOVALUE_PRESETS.length}</b><p>Docs presets</p></article>
+        </div>
+        <div className="featureGrid" style={{ marginTop: '14px' }}>
+          <article><b>{brief?.runtime?.hasApiKey ? 'Loaded' : 'Optional'}</b><p>Groq AI copilot key</p></article>
+          <article><b>{brief?.model || brief?.runtime?.model || 'llama-3.3-70b-versatile'}</b><p>Groq model</p></article>
+          <article><b>{activeAsset?.symbol || '—'}</b><p>Active market thesis target</p></article>
         </div>
         <div className="toolBar" style={{ paddingLeft: 0, paddingRight: 0 }}>
           <label>Preset
@@ -1838,10 +1916,12 @@ function ResearchPanel(props:any) {
         />
         <div className="toolBar" style={{ paddingLeft: 0, paddingRight: 0 }}>
           <button className="miniBtn" onClick={runProbe}>Run SoSoValue probe</button>
+          <button className="miniBtn" onClick={runBrief}>Generate Groq thesis</button>
           <a className="miniBtn" href={SOSOVALUE_CONSOLE_URL} target="_blank" rel="noreferrer">Console</a>
           <a className="miniBtn" href={SOSOVALUE_DOCS_URL} target="_blank" rel="noreferrer">Docs</a>
         </div>
         {error && <div className="walletError">{error}</div>}
+        {briefError && <div className="walletError">{briefError}</div>}
         <div className="featureGrid" style={{ marginTop: '14px' }}>
           {SOSOVALUE_PRESETS.slice(0, 6).map((preset) => (
             <article key={preset.key}>
@@ -1849,6 +1929,26 @@ function ResearchPanel(props:any) {
               <p>{preset.description}</p>
             </article>
           ))}
+        </div>
+        <div className="panel" style={{ padding: '14px', marginTop: '14px', background: 'rgba(255,255,255,0.03)' }}>
+          <div className="panelTitle">
+            <b>Groq Execution Thesis</b>
+            <a>{briefStatus === 'loading' ? 'Thinking...' : brief?.ms ? `${brief.ms} ms` : 'server-side copilot'}</a>
+          </div>
+          {brief?.parsed ? (
+            <>
+              <div className="featureGrid" style={{ padding: 0 }}>
+                <article><b>{brief.parsed.action || 'WATCH'}</b><p>Suggested action</p></article>
+                <article><b>{brief.parsed.confidence ?? '—'}%</b><p>Confidence</p></article>
+                <article><b>{brief.parsed.regime || 'Balanced Tape'}</b><p>Regime</p></article>
+              </div>
+              <div className="featureGrid" style={{ marginTop: '12px', padding: 0 }}>
+                <article><b>Summary</b><p>{brief.parsed.summary || 'No summary returned.'}</p></article>
+                <article><b>Thesis</b><p>{Array.isArray(brief.parsed.thesis) ? brief.parsed.thesis.join(' · ') : 'No thesis returned.'}</p></article>
+                <article><b>Execution plan</b><p>{Array.isArray(brief.parsed.executionPlan) ? brief.parsed.executionPlan.join(' · ') : 'No execution plan returned.'}</p></article>
+              </div>
+            </>
+          ) : <p style={{ margin: 0, color: '#aebacc' }}>Run Groq thesis to convert live SoSoValue and SoDEX context into a concise execution read.</p>}
         </div>
         <div className="panel" style={{ padding: '14px', marginTop: '14px', background: 'rgba(255,255,255,0.03)' }}>
           <div className="panelTitle">

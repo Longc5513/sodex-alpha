@@ -179,6 +179,16 @@ Used for:
 - live order preparation
 - live order submission
 
+### Groq
+
+Optional server-side copilot support is now wired for:
+
+- execution thesis generation
+- AI research condensation
+- fast action briefs built from SoSoValue news and SoDEX venue context
+
+Groq is only called from the server route. The key is not exposed to the browser.
+
 ## What Makes This Submission Strong
 
 From a judge perspective, this project is strongest where many hackathon submissions are weakest:
@@ -316,6 +326,8 @@ SODEX_PUBLIC_KEY=0x_optional_alias
 SODEX_CHAIN_ID=286623
 SOSOVALUE_API_KEY=your_sosovalue_api_key
 SOSOVALUE_API_BASE_URL=https://openapi.sosovalue.com/openapi/v1
+GROQ_API_KEY=your_groq_api_key
+GROQ_MODEL=llama-3.3-70b-versatile
 SODEX_SPOT_ENDPOINT=https://mainnet-gw.sodex.dev/api/v1/spot
 SODEX_PERPS_ENDPOINT=https://mainnet-gw.sodex.dev/api/v1/perps
 ```
