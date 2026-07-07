@@ -370,6 +370,16 @@ function buildAlgoSlices(
   }).filter((row) => row.qty > 0);
 }
 
+type ApiTrayEntry = {
+  id: string;
+  source: 'SoSoValue' | 'SoDEX' | 'Groq';
+  label: string;
+  ok: boolean;
+  ms: number;
+  preview: string;
+  at: string;
+};
+
 function BasketBacktest({assets}:{assets:Asset[]}) {
   const [mode, setMode] = useState<'Core'|'Momentum'|'ValueChain'>('Core');
   const config = REBALANCE_BASKETS[mode];
@@ -1060,6 +1070,7 @@ function ExecutionDesk(props:any) {
   const [groqStatus, setGroqStatus] = useState<'idle' | 'loading' | 'ok' | 'error'>('idle');
   const [groqError, setGroqError] = useState('');
   const [algoStyle, setAlgoStyle] = useState<'TWAP' | 'VWAP' | 'POV' | 'Iceberg'>('VWAP');
+  const [apiTray, setApiTray] = useState<ApiTrayEntry[]>([]);
   const [liveAccount, setLiveAccount] = useState<PortfolioLiveData | null>(null);
   const [livePreparing, setLivePreparing] = useState(false);
   const [liveMeta, setLiveMeta] = useState<any>(null);
@@ -1071,16 +1082,42 @@ function ExecutionDesk(props:any) {
   const liveOrderSymbol = asset?.sodexSymbol || (symbol === 'BTC' ? 'vBTC_vUSDC' : symbol === 'ETH' ? 'vETH_vUSDC' : symbol === 'SOL' ? 'vSOL_vUSDC' : symbol === 'LINK' ? 'vLINK_vUSDC' : symbol === 'SOSO' ? 'SOSO_USDC' : '');
   const inferredAid = String(liveAccount?.state?.aid || '');
   const activeAccountID = accountID || (inferredAid && inferredAid !== '0' ? inferredAid : '');
+  const recordApiCall = useCallback((entry: Omit<ApiTrayEntry, 'id' | 'at'>) => {
+    setApiTray((prev) => [{
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      at: new Date().toISOString(),
+      ...entry
+    }, ...prev].slice(0, 10));
+  }, []);
   useEffect(() => { if (asset?.symbol) setSymbol(asset.symbol); }, [asset?.symbol]);
   useEffect(() => {
     if (!symbol) return;
     let live = true;
+    const started = performance.now();
     fetch(`/api/market?symbol=${encodeURIComponent(symbol)}`, { cache: 'no-store' })
       .then((res) => res.json())
-      .then((json) => { if (live) setDetail(json.detail || null); })
-      .catch(() => { if (live) setDetail(null); });
+      .then((json) => {
+        if (live) setDetail(json.detail || null);
+        recordApiCall({
+          source: 'SoDEX',
+          label: `market ${symbol}`,
+          ok: Boolean(json?.detail),
+          ms: Math.round(performance.now() - started),
+          preview: json?.detail?.pair || 'detail unavailable'
+        });
+      })
+      .catch((error:any) => {
+        if (live) setDetail(null);
+        recordApiCall({
+          source: 'SoDEX',
+          label: `market ${symbol}`,
+          ok: false,
+          ms: Math.round(performance.now() - started),
+          preview: error?.message || 'market request failed'
+        });
+      });
     return () => { live = false; };
-  }, [symbol]);
+  }, [symbol, recordApiCall]);
   useEffect(() => {
     if (!liveOrderSymbol) {
       setLiveMeta(null);
@@ -1097,14 +1134,34 @@ function ExecutionDesk(props:any) {
       funds: orderType === 'MARKET' ? liveFunds : undefined,
       price: orderType === 'LIMIT' ? livePrice || String(asset?.price || '') : undefined
     };
+    const started = performance.now();
     fetch('/api/sodex/prepare', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
       .then((res) => res.json())
-      .then((json) => { if (active && json.ok) setLiveMeta(json.prepared?.symbolMeta || null); })
-      .catch(() => { if (active) setLiveMeta(null); });
+      .then((json) => {
+        if (active && json.ok) setLiveMeta(json.prepared?.symbolMeta || null);
+        recordApiCall({
+          source: 'SoDEX',
+          label: `prepare ${liveOrderSymbol}`,
+          ok: Boolean(json?.ok),
+          ms: Math.round(performance.now() - started),
+          preview: json?.prepared?.symbolMeta?.baseAsset || json?.error || 'prepared'
+        });
+      })
+      .catch((error:any) => {
+        if (active) setLiveMeta(null);
+        recordApiCall({
+          source: 'SoDEX',
+          label: `prepare ${liveOrderSymbol}`,
+          ok: false,
+          ms: Math.round(performance.now() - started),
+          preview: error?.message || 'prepare failed'
+        });
+      });
     return () => { active = false; };
-  }, [liveOrderSymbol, activeAccountID, side, orderType, liveFunds, liveQuantity, livePrice, wallet?.address, asset?.price]);
+  }, [liveOrderSymbol, activeAccountID, side, orderType, liveFunds, liveQuantity, livePrice, wallet?.address, asset?.price, recordApiCall]);
   useEffect(() => {
     let active = true;
+    const started = performance.now();
     fetch('/api/news-live', { cache: 'no-store' })
       .then((res) => res.json())
       .then((json) => {
@@ -1113,10 +1170,25 @@ function ExecutionDesk(props:any) {
           lead: json?.stories?.[0] || null,
           macro: json?.macroEvents?.[0] || null
         });
+        recordApiCall({
+          source: 'SoSoValue',
+          label: 'news-live',
+          ok: Boolean(json?.stories || json?.featured),
+          ms: Math.round(performance.now() - started),
+          preview: json?.stories?.[0]?.title || json?.errors?.[0] || 'news loaded'
+        });
       })
-      .catch(() => {});
+      .catch((error:any) => {
+        recordApiCall({
+          source: 'SoSoValue',
+          label: 'news-live',
+          ok: false,
+          ms: Math.round(performance.now() - started),
+          preview: error?.message || 'news request failed'
+        });
+      });
     return () => { active = false; };
-  }, []);
+  }, [recordApiCall]);
   useEffect(() => {
     if (asset?.price) setLivePrice(String(asset.price));
   }, [asset?.price]);
@@ -1126,16 +1198,32 @@ function ExecutionDesk(props:any) {
       return;
     }
     let active = true;
+    const started = performance.now();
     fetch(`/api/portfolio-live?address=${encodeURIComponent(wallet.address)}`, { cache: 'no-store' })
       .then((res) => res.json())
       .then((json) => {
         if (!active || !json.ok) return;
         setLiveAccount(json.data || null);
         if (!accountID && json.data?.state?.aid) setAccountID(String(json.data.state.aid));
+        recordApiCall({
+          source: 'SoDEX',
+          label: `portfolio-live ${short(wallet.address)}`,
+          ok: Boolean(json?.ok),
+          ms: Math.round(performance.now() - started),
+          preview: `aid=${json?.data?.state?.aid || 0}`
+        });
       })
-      .catch(() => {});
+      .catch((error:any) => {
+        recordApiCall({
+          source: 'SoDEX',
+          label: `portfolio-live ${short(wallet.address)}`,
+          ok: false,
+          ms: Math.round(performance.now() - started),
+          preview: error?.message || 'portfolio request failed'
+        });
+      });
     return () => { active = false; };
-  }, [wallet?.address, accountID]);
+  }, [wallet?.address, accountID, recordApiCall]);
   const price = asset?.price || 0;
   const qty = price > 0 ? budget / price : 0;
   const liveSpreadPct = detail?.spreadBps ? detail.spreadBps / 100 : null;
@@ -1340,9 +1428,24 @@ function ExecutionDesk(props:any) {
       if (json.ok) {
         setLiveAccount(json.data || null);
         if (!accountID && json.data?.state?.aid) setAccountID(String(json.data.state.aid));
+        recordApiCall({
+          source: 'SoDEX',
+          label: `refresh portfolio ${short(wallet.address)}`,
+          ok: true,
+          ms: 0,
+          preview: `aid=${json?.data?.state?.aid || 0}`
+        });
       }
-    } catch {}
-  }, [wallet?.address, accountID]);
+    } catch (error:any) {
+      recordApiCall({
+        source: 'SoDEX',
+        label: `refresh portfolio ${wallet?.address ? short(wallet.address) : 'wallet'}`,
+        ok: false,
+        ms: 0,
+        preview: error?.message || 'refresh failed'
+      });
+    }
+  }, [wallet?.address, accountID, recordApiCall]);
 
   const generateGroqExecutionDraft = useCallback(async () => {
     if (!asset?.price || !liveOrderSymbol) {
@@ -1383,6 +1486,13 @@ function ExecutionDesk(props:any) {
       });
       const json = await res.json();
       if (!json.ok || !json.parsed) throw new Error(json.error || 'Groq did not return a structured draft');
+      recordApiCall({
+        source: 'Groq',
+        label: `ai-brief ${asset.symbol}`,
+        ok: true,
+        ms: Number(json?.ms || 0),
+        preview: json?.parsed?.summary || 'execution draft generated'
+      });
       const parsed = json.parsed;
       const aiSide: 'BUY' | 'SELL' = parsed.action === 'SELL' ? 'SELL' : 'BUY';
       const aiMode: 'LIMIT' | 'MARKET' = /macro|event|breakout|urgent/i.test(String(parsed.regime || '')) ? 'MARKET' : orderType;
@@ -1438,10 +1548,17 @@ function ExecutionDesk(props:any) {
       }, ...decisionLog.slice(0, 59)]);
       setLiveStatus(`Groq staged a ${algoStyle} draft for ${asset.symbol}`);
     } catch (err: any) {
+      recordApiCall({
+        source: 'Groq',
+        label: `ai-brief ${asset?.symbol || symbol}`,
+        ok: false,
+        ms: 0,
+        preview: err?.message || 'Groq draft failed'
+      });
       setGroqError(err?.message || 'Failed to generate Groq execution draft');
       setGroqStatus('error');
     }
-  }, [asset, liveOrderSymbol, detail?.spreadBps, spreadPct, visibleDepthUsd, newsState.lead, newsState.macro, topBid, topAsk, orderType, draftableQty, algoStyle, drafts, setDrafts, setDecisionLog, decisionLog, feeAwareCost]);
+  }, [asset, liveOrderSymbol, detail?.spreadBps, spreadPct, visibleDepthUsd, newsState.lead, newsState.macro, topBid, topAsk, orderType, draftableQty, algoStyle, drafts, setDrafts, setDecisionLog, decisionLog, feeAwareCost, recordApiCall, symbol]);
 
   const submitLiveOrder = useCallback(async () => {
     setLiveError('');
@@ -1720,6 +1837,19 @@ function ExecutionDesk(props:any) {
             <button className="miniBtn" onClick={generateGroqExecutionDraft} disabled={groqStatus === 'loading' || !asset?.price}>{groqStatus === 'loading' ? 'Thinking...' : 'Refresh AI draft'}</button>
             {groqDraft?.draft ? <button className="miniBtn" onClick={() => applyDraft(groqDraft.draft)}>Load AI draft into execution</button> : null}
             <span className="miniBtn">Inspired by microstructure execution planning</span>
+          </div>
+        </section>
+        <section className="panel" style={{ padding: '16px', marginTop: '14px' }}>
+          <div className="panelTitle">
+            <b>API Visibility Tray</b>
+            <a>recent SoSoValue · SoDEX · Groq calls</a>
+          </div>
+          <div className="storyList apiTrayList">
+            {apiTray.length ? apiTray.map((row) => <article className="storyCard apiTrayCard" key={row.id}>
+              <div className="storyMeta"><span>{row.source}</span><em>{row.ms} ms</em></div>
+              <b>{row.ok ? 'OK' : 'WARN'} · {row.label}</b>
+              <p>{row.preview}</p>
+            </article>) : <article className="storyCard apiTrayCard"><b>No API calls recorded yet</b><p>Change symbol, refresh account, or generate a Groq draft to populate the execution tray.</p></article>}
           </div>
         </section>
         <div className="executionGrid">
@@ -3077,6 +3207,8 @@ function NewsExecutionBotPage(props:any) {
 function OperatorLabPage(props:any) {
   const { drafts, setDrafts, assets } = props;
   const liveDrafts = drafts.filter((row:ExecutionDraft) => row.status !== 'archived');
+  const aiDrafts = liveDrafts.filter((row:ExecutionDraft) => row.origin === 'groq');
+  const nonAiDrafts = liveDrafts.filter((row:ExecutionDraft) => row.origin !== 'groq');
   const [focusId, setFocusId] = useState(liveDrafts[0]?.id || '');
   const focus = liveDrafts.find((row:ExecutionDraft) => row.id === focusId) || liveDrafts[0] || null;
   const [detail, setDetail] = useState<any>(null);
@@ -3105,16 +3237,31 @@ function OperatorLabPage(props:any) {
       <div className="panelTitle"><b>Operator Lab</b><a>Draft queue + SoDEX routing context</a></div>
       <div className="featureGrid">
         <article><b>{liveDrafts.length}</b><p>Execution drafts waiting in the queue</p></article>
+        <article><b>{aiDrafts.length}</b><p>Groq AI drafts in dedicated queue</p></article>
         <article><b>{usd(totalNotional)}</b><p>Total staged notional across all modules</p></article>
         <article><b>{focus?.symbol || '—'}</b><p>Current live routing focus</p></article>
         <article><b>{spreadBps !== null ? formatBp(spreadBps) : '—'}</b><p>Live SoDEX spread for focused draft</p></article>
       </div>
+      <section className="panel" style={{padding:'16px', marginTop:'14px'}}>
+        <div className="panelTitle"><b>AI Draft Queue</b><a>{aiDrafts.length} Groq-staged plans</a></div>
+        <div className="storyList">
+          {aiDrafts.length ? aiDrafts.map((row:ExecutionDraft) => <article className="storyCard" key={row.id}>
+            <div className="storyMeta"><span>{row.symbol}</span><em>{row.mode} · {row.status}</em></div>
+            <b>{row.side} {row.qty.toFixed(4)} · {usd(row.notional)}</b>
+            <p>{row.rationale}</p>
+            <div className="launchCtas" style={{marginTop:'10px'}}>
+              <button className="miniBtn" onClick={() => setFocusId(row.id)}>Focus</button>
+              <a className="miniBtn" href="/execution">Open Execution</a>
+            </div>
+          </article>) : <article className="storyCard"><b>No AI drafts yet</b><p>Generate a Groq draft inside Execution and it will appear here as a separate operator queue.</p></article>}
+        </div>
+      </section>
       <div className="contentGrid" style={{paddingTop:'14px'}}>
         <div className="leftCol">
           <section className="market panel">
-            <div className="panelTitle"><b>Draft Queue</b><a>{liveDrafts.length} active</a></div>
+            <div className="panelTitle"><b>Draft Queue</b><a>{nonAiDrafts.length} non-AI active</a></div>
             <table><thead><tr><th>Origin</th><th>Symbol</th><th>Side</th><th>Mode</th><th>Notional</th><th>Regime</th><th>Status</th></tr></thead><tbody>
-              {liveDrafts.length ? liveDrafts.map((row:ExecutionDraft)=><tr key={row.id} onClick={()=>setFocusId(row.id)}>
+              {nonAiDrafts.length ? nonAiDrafts.map((row:ExecutionDraft)=><tr key={row.id} onClick={()=>setFocusId(row.id)}>
                 <td>{row.origin}</td>
                 <td>{row.symbol}</td>
                 <td className={row.side==='BUY'?'green':'red'}>{row.side}</td>
@@ -3122,7 +3269,7 @@ function OperatorLabPage(props:any) {
                 <td>{usd(row.notional)}</td>
                 <td>{row.regime}</td>
                 <td>{row.status}</td>
-              </tr>) : <tr><td colSpan={7}>No execution drafts yet. Generate one from the rebalance or news bot modules.</td></tr>}
+              </tr>) : <tr><td colSpan={7}>No non-AI execution drafts yet. Generate one from launch, rebalance, or news bot modules.</td></tr>}
             </tbody></table>
           </section>
         </div>
