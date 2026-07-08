@@ -1,340 +1,289 @@
 # SoDEX Alpha Terminal
 
-SoDEX Alpha Terminal is a builder-grade research-to-execution workstation for the SoSoValue x SoDEX buildathon.
+SoDEX Alpha Terminal is a builder-grade operating desk for the SoSoValue x SoDEX buildathon.
 
-The product thesis is simple:
+It is designed around one practical idea:
 
-> if research cannot become an accountable execution plan, it is still just content.
+> research only matters if it can become an accountable execution plan.
 
-This repo turns SoSoValue research context and SoDEX venue data into a working operator loop:
+This repo focuses on that loop with fewer, stronger product surfaces instead of many thin demo pages.
 
-- discover market rotation
-- inspect macro and news catalysts
-- generate execution drafts
-- apply risk gates
-- route paper or live orders
-- keep a decision audit trail
+## What This Product Does
 
-## Why This Project Exists
+The app combines SoSoValue research context, SoDEX venue state, and AI-assisted planning into one execution workflow:
 
-Most hackathon trading demos stop at one of two extremes:
+1. detect opportunity
+2. validate it with live market structure
+3. turn it into a staged SoDEX draft
+4. route or review it
+5. keep a decision trail
 
-- a pretty dashboard with little execution logic
-- an execution form with weak research context
+## Core Menus
 
-This project is intentionally built between those two.
+These are the active primary menus in the current product.
 
-It is designed to help a solo operator:
+| Route | Module | What it does |
+| --- | --- | --- |
+| `/launch` | Launch | Product overview with live market rail, candidate discovery, and fast paths into execution |
+| `/execution` | Trade Copilot | Spread, depth, fees, risk gates, Groq draft generation, and live/local order flow |
+| `/strategy-rack` | Strategy Rack | Repo-inspired strategies that all stage real SoDEX drafts |
+| `/backtest-lab` | Backtest Lab | Replay-style staging surface inspired by prediction-market-backtesting and large-dataset workflows |
+| `/smart-money` | Smart Money | Peer-wallet consensus, best timing/sizing/discipline rankings, and consensus draft staging |
+| `/lp-monitor` | LP Monitor | Passive repricing and maker-discipline workflow inspired by limit-order management tools |
+| `/operator-lab` | Operator Lab | Central queue for AI, strategy, rebalance, and smart-money drafts |
+| `/rebalance` | Rebalance | Convert index/basket thinking into staged SoDEX execution plans |
+| `/decision-log` | Decision Log | Audit trail with rationale, market context, and execution outcome |
+| `/heatmap` | Heatmap | Large token map with click-through into execution |
+| `/portfolio-live` | Portfolio Live | Wallet-linked SoDEX balances, orders, trades, and peer benchmarking context |
+| `/diagnostics` | Diagnostics | Runtime, SoSoValue, SoDEX, and Groq health checks |
 
-- decide what matters now
-- understand why it matters
-- translate that into a staged SoDEX plan
-- prove the decision path honestly to judges and users
+## Why The Menu Changed
 
-## Core Product Surfaces
+Older menu surfaces that did not provide distinct utility were removed from the main navigation.
 
-### 1. Launch Rail
+The new navigation is built around four stronger use cases inspired by public trading repos:
 
-Route: `/launch`
+- strategy staging
+- backtest / replay discipline
+- smart-money intelligence
+- LP / maker execution discipline
 
-The launch page is not a marketing shell. It is the product story in working form.
+## Repo Inspirations Actually Used
 
-It combines:
+These repos were reviewed as design references for functionality, not copied as-is:
 
-- live market overview
-- SoSoValue-aware launch narrative
-- quant-style decision surface
-- basket backtest
-- direct paths into execution and audit
+- [`SII-WANGZJ/Polymarket_data`](https://github.com/SII-WANGZJ/Polymarket_data)
+- [`evan-kolberg/prediction-market-backtesting`](https://github.com/evan-kolberg/prediction-market-backtesting)
+- [`ent0n29/polybot`](https://github.com/ent0n29/polybot)
+- [`lihanyu81/polymarket_lp_tool`](https://github.com/lihanyu81/polymarket_lp_tool)
+- [`alsk1992/CloddsBot`](https://github.com/alsk1992/CloddsBot)
+- [`pydantic/pydantic-ai`](https://github.com/pydantic/pydantic-ai)
+- [`TauricResearch/TradingAgents`](https://github.com/TauricResearch/TradingAgents)
+- [`pmxt-dev/pmxt`](https://github.com/pmxt-dev/pmxt)
+- [`HarrierOnChain/Prediction-Markets-Trading-Bot-Toolkits`](https://github.com/HarrierOnChain/Prediction-Markets-Trading-Bot-Toolkits)
+- [`aarora4/Awesome-Prediction-Market-Tools`](https://github.com/aarora4/Awesome-Prediction-Market-Tools)
+- [`Hari-hara7/Crypto`](https://github.com/Hari-hara7/Crypto)
 
-### 2. Trade Copilot
+What they contributed to this build:
+
+- `Polymarket_data`: dataset-first thinking, replay mentality, historical discipline
+- `prediction-market-backtesting`: runner-style validation and backtest promotion into live drafts
+- `polybot`: peer-wallet behavior analysis and smart-money consensus
+- `polymarket_lp_tool`: deterministic repricing / maker discipline
+- `CloddsBot`: multi-strategy rack mentality
+- `pydantic-ai`: typed, structured AI workflow mindset
+- `TradingAgents`: research-to-action agent flow
+- `pmxt`: unified market-data thinking across research and execution
+- `Harrier toolkit`: execution-first bot structure
+- `Awesome-Prediction-Market-Tools`: breadth of practical tool patterns
+- `Hari-hara7/Crypto`: stronger trading-terminal presentation language
+
+## Main Functional Surfaces
+
+### Trade Copilot
 
 Route: `/execution`
 
-This is the main decision-to-order screen.
-
-It uses live or venue-derived SoDEX context to show:
-
-- spread
-- visible depth
-- estimated fills
-- fee-aware cost
-- market impact
-- risk gate status
-- live order route readiness
+Trade Copilot is the most important page in the app.
 
 It supports:
 
-- paper routing
-- server-signed live route
-- browser-wallet EIP-712 flow
-- staged draft loading from other modules
+- symbol-focused SoDEX execution view
+- risk gate before live submit
+- API visibility tray for SoSoValue / SoDEX / Groq calls
 - Groq-generated execution drafts
-- TWAP / VWAP / POV / Iceberg style slice planning
+- staged slices
+- live and local routing flows
 
-### 3. Index Rebalance Executor
+### Strategy Rack
 
-Route: `/sosovalue-indexes`
+Route: `/strategy-rack`
 
-This module converts SoSoValue basket or index thinking into actionable venue plans.
+Every strategy in this rack stages a real draft into Operator Lab.
 
-It produces:
+Current strategies:
 
-- target weights
-- exposure drift
-- staged slice plans
-- execution drafts that can be loaded into the shared operator queue
+- `Momentum Sprint`
+- `Consensus Follow`
+- `News Shock Response`
+- `LP Reprice`
+- `Mean Reversion`
+- `Vol Breakout`
 
-### 4. News-to-Execution Bot
+### Backtest Lab
 
-Route: `/alerts`
+Route: `/backtest-lab`
 
-This module reads live SoSoValue news and macro context, then turns that flow into execution drafts.
+This module translates replay and simulation ideas into actionable behavior:
 
-It classifies regime, proposes side bias, and creates rationale-rich drafts rather than static alerts.
+- highlight strongest continuation candidate
+- highlight strongest reversal candidate
+- stage replay-driven drafts
+- keep backtest thinking close to execution instead of isolated notebooks
 
-### 5. Operator Lab
+### Smart Money
+
+Route: `/smart-money`
+
+This module uses `/api/smart-money` and real SoDEX wallet cohorts to provide:
+
+- peer-wallet watchlists
+- consensus symbol detection
+- best timing ranking
+- best sizing ranking
+- best discipline ranking
+- smart-money draft staging
+
+### LP Monitor
+
+Route: `/lp-monitor`
+
+This module turns maker-style logic into a focused tool:
+
+- top bid / top ask tracking
+- spread view
+- visible depth view
+- depth imbalance signal
+- suggested maker price
+- maker draft staging into Operator Lab
+
+### Operator Lab
 
 Route: `/operator-lab`
 
-Operator Lab is the orchestration layer of the product.
+This is the central execution queue for the whole app.
 
-It acts as a shared inbox for:
+It aggregates drafts coming from:
 
-- rebalance drafts
-- news-driven drafts
-- execution planning context
-- staged slice review before route
+- strategy rack
+- trade copilot
+- smart money
+- backtest lab
+- rebalance
+- news bot
 
-### 6. Portfolio Live
+### Rebalance
 
-Route: `/portfolio-live`
+Route: `/rebalance`
 
-This page reads live SoDEX account state by wallet and keeps the demo honest.
+Rebalance converts SoSoValue index/basket thinking into:
 
-It includes:
+- target weights
+- drift checks
+- staged execution plans
+- queued SoDEX drafts
 
-- balances
-- open orders
-- trade history
-- fee tier
-- account readiness
-- API key readiness
-- live PnL attribution
-- smart money watch
-- peer scorecard
-- counterfactual replay overlay
-
-### 7. Decision Log
-
-Route: `/decision-log`
-
-This is the accountability layer.
-
-Every meaningful action can record:
-
-- signal reason
-- SoSoValue news reference
-- macro context
-- spread and depth
-- risk gate result
-- route outcome
-- counterfactual "if skipped" overlay
-
-### 8. Heatmap
+### Heatmap
 
 Route: `/heatmap`
 
-The heatmap is a sector-style treemap over the SoDEX venue universe.
+Heatmap is built as an execution map, not just a decorative board:
 
-It is built to be useful, not decorative:
+- hundreds of tokens
+- grouped treemap layout
+- click-to-execution behavior
+- liquidity / market-size sizing
+- momentum color encoding
 
-- tile size reflects liquidity or market size
-- tile color reflects momentum
-- hover reveals execution context
-- click jumps directly into `/execution`
+### Portfolio Live
 
-## Live Integrations
+Route: `/portfolio-live`
 
-### SoSoValue
+This page proves wallet-linked venue integration:
 
-Used for:
+- balances
+- open orders
+- order history
+- trade history
+- fee state
+- account readiness
+- smart-money benchmarking context
 
-- currency directory and research metadata
-- market snapshots
-- hot news
-- featured research
-- macro event context
-- index and SSI rails
+### Diagnostics
 
-### SoDEX
+Route: `/diagnostics`
 
-Used for:
+Diagnostics gives production-style visibility into:
 
-- market tickers
-- klines
-- book tickers
-- orderbook depth
-- recent trades
-- live account reads
-- fee information
-- live order preparation
-- live order submission
+- runtime state
+- SoSoValue connectivity
+- SoDEX connectivity
+- Groq readiness
+- latency per probe
 
-### Groq
+## SoSoValue Integration
 
-Optional server-side copilot support is now wired for:
+SoSoValue is used for:
 
-- execution thesis generation
-- AI research condensation
-- fast action briefs built from SoSoValue news and SoDEX venue context
-
-Groq is only called from the server route. The key is not exposed to the browser.
-
-## Technical Inspiration
-
-One execution workflow reference used while improving this product was:
-
-- [`mansoor-mamnoon/limit-order-book`](https://github.com/mansoor-mamnoon/limit-order-book)
-- [`ent0n29/polybot`](https://github.com/ent0n29/polybot)
-- [`lihanyu81/polymarket_lp_tool`](https://github.com/lihanyu81/polymarket_lp_tool)
-- [`TauricResearch/TradingAgents`](https://github.com/TauricResearch/TradingAgents)
-
-These repos influenced different layers of the app:
-
-- `limit-order-book`: spread / impact analytics and staged execution styles such as VWAP, TWAP, and POV
-- `polybot`: trader behavior intelligence and consensus-style market reading
-- `polymarket_lp_tool`: quote maintenance and reprice discipline for passive order workflows
-- `TradingAgents`: agent-style research condensation into operator-facing action briefs
-
-## What Makes This Submission Strong
-
-From a judge perspective, this project is strongest where many hackathon submissions are weakest:
-
-- it does not fake venue state when live state is unavailable
-- it distinguishes live external data from local operator state
-- it provides an audit trail, not only an execution button
-- it shows how research translates into execution drafts
-- it proves risk gating before submit
-- it gives a builder-friendly demo flow instead of isolated screens
-
-## Data Honesty
-
-This product intentionally separates three classes of data.
-
-### 1. Live external data
-
-Fetched from SoSoValue or SoDEX:
-
-- market rows
-- candles
-- orderbook depth
-- trades
+- market context
+- research presets
 - hot news
 - featured stories
 - macro events
-- account state
-- fee rates
+- index / basket framing
 
-### 2. Local operator state
+## SoDEX Integration
 
-Persisted in browser storage for demo continuity:
+SoDEX is used for:
 
-- watchlist
-- paper trades
-- decision log
-- drafts
-- bot history
+- market rows
+- candles
+- top-of-book detail
+- orderbook depth
+- trade tape
+- wallet-linked account reads
+- order preparation
+- live execution routing
 
-### 3. Derived analytics
+## Groq Integration
 
-Strategy outputs and planner logic:
+Groq is used server-side for:
 
-- staged order slices
-- rebalance deltas
-- execution route suggestions
-- skip-trade overlays
-- scenario PnL previews
+- execution draft generation
+- action briefs
+- research condensation
 
-Where a value is derived, the UI should treat it as derived logic, not claim it as a venue-native field.
+The key stays off the client.
 
-## Architecture
+## Compatibility Routes
 
-### Frontend
+Some older routes are still supported as aliases or secondary entry points so shared links do not break:
 
-- Next.js 16
-- React 19
-- App Router
-- terminal-style client experience centered in [`app/terminal.tsx`](./app/terminal.tsx)
-
-### Backend / library modules
-
-- [`lib/market.ts`](./lib/market.ts)
-  - SoDEX market aggregation
-  - SoSoValue snapshot merging
-  - live asset normalization
-- [`lib/sodex.ts`](./lib/sodex.ts)
-  - account reads
-  - order preparation
-  - EIP-712 and live route helpers
-- [`lib/sosovalue.ts`](./lib/sosovalue.ts)
-  - SoSoValue API wrapper
-- [`lib/sosovalue-meta.ts`](./lib/sosovalue-meta.ts)
-  - docs links
-  - console links
-  - preset metadata
-
-### Assets
-
-- [`public/tokens`](./public/tokens) for local token icons
-- [`public/sodex-logo.jpg`](./public/sodex-logo.jpg) for product branding
-
-## Routes
-
-| Route | Purpose |
+| Older route | Current meaning |
 | --- | --- |
-| `/launch` | Product-story launch rail |
-| `/judges` | Submission framing for evaluation |
-| `/execution` | Trade Copilot and live route desk |
-| `/operator-lab` | Shared execution inbox |
-| `/decision-log` | Audit trail and counterfactual review |
-| `/markets` | Market table surface |
-| `/watchlist` | Builder watchlist |
-| `/alpha-signals` | Signal rail |
-| `/screener` | Live market screen |
-| `/heatmap` | Full-screen treemap |
-| `/portfolio` | Local portfolio panel |
-| `/portfolio-live` | Live SoDEX account state |
-| `/paper-trading` | Local paper order flow |
-| `/news-and-insights` | SoSoValue news + macro rail |
-| `/sosovalue-indexes` | Index rebalance executor |
-| `/ai-research` | SoSoValue research probe surface |
-| `/alerts` | News-to-execution bot |
-| `/diag` | Integration diagnostics |
+| `/markets` | Strategy Rack |
+| `/sosovalue-indexes` | Rebalance |
+| `/judges` | Backtest Lab |
+| `/diag` | Diagnostics |
+| `/news-and-insights` | Secondary SoSoValue news surface |
+| `/news-rail` | Secondary SoSoValue news surface |
+| `/alerts` | Secondary news-to-execution bot surface |
+| `/news-bot` | Secondary news-to-execution bot surface |
+
+These routes are no longer primary navigation targets.
 
 ## API Endpoints
 
 | Endpoint | Purpose |
 | --- | --- |
-| `/api/market` | Live market aggregation for launch, heatmap, screener, execution |
+| `/api/market` | Live market aggregation and symbol detail |
 | `/api/news-live` | SoSoValue hot news, featured stories, macro events |
-| `/api/portfolio-live` | SoDEX wallet-linked account state |
-| `/api/sodex/prepare` | Build typed-data order payload |
+| `/api/portfolio-live` | Live SoDEX account state by wallet |
+| `/api/smart-money` | Peer-wallet and consensus analytics |
+| `/api/sodex/prepare` | Build typed order payload |
 | `/api/sodex/submit` | Submit browser-signed order |
-| `/api/sodex/order` | Server-signed live route |
-| `/api/smart-money` | Peer wallet watch and scorecard |
+| `/api/sodex/order` | Server-side order route |
 | `/api/diag` | Runtime and integration diagnostics |
-| `/api/sosovalue` | Safe SoSoValue research probing |
+| `/api/sosovalue` | SoSoValue research probing |
+| `/api/ai-brief` | Groq-powered execution and research brief |
 
 ## Environment Variables
 
-Copy `.env.example` into `.env.local` and fill the values you control.
+Copy `.env.example` to `.env.local` and fill your real values:
 
 ```bash
 cp .env.example .env.local
 ```
-
-Expected variables:
 
 ```env
 SODEX_API_PRIVATE_KEY=private_key_here
@@ -358,7 +307,7 @@ Install dependencies:
 npm install
 ```
 
-Run the app:
+Run locally:
 
 ```bash
 npm run dev
@@ -371,61 +320,29 @@ npm run build
 npm run start
 ```
 
-## Suggested Demo Flow
-
-For a clean judge-facing demo:
-
-1. Open `/launch`
-2. Show the thesis and live market surface
-3. Open `/news-and-insights`
-4. Show live SoSoValue hot news and macro context
-5. Open `/alerts`
-6. Generate a news-driven execution draft
-7. Open `/sosovalue-indexes`
-8. Generate an index rebalance draft
-9. Open `/operator-lab`
-10. Show the shared execution inbox
-11. Open `/execution`
-12. Load a draft and show spread, depth, fee-aware cost, and route readiness
-13. Open `/portfolio-live`
-14. Prove live SoDEX account reads
-15. Open `/decision-log`
-16. Prove explainability and counterfactual review
-17. Open `/diag`
-18. End by proving the stack is alive
-
-## Security Notes
-
-- keep `SODEX_API_PRIVATE_KEY` server-side only
-- do not expose private signing material to the browser
-- use browser-wallet typed-data signing when you want explicit user approval
-- use server-side routes to keep credentials out of the client bundle
-
-## Current Limitations
-
-- operator state is browser-local, not database-backed
-- some strategy analytics are derived rather than official venue post-trade metrics
-- live attribution depends on the queried wallet actually having SoDEX order or trade history
-- not every module auto-submits; some intentionally stop at staged execution plans
-
-## Repo Structure
+## Current Repo Structure
 
 ```text
 app/
   api/
-  alerts/
-  ai-research/
+  backtest-lab/
   decision-log/
-  diag/
+  diagnostics/
   execution/
   heatmap/
   judges/
   launch/
+  lp-monitor/
   markets/
   news-and-insights/
+  news-bot/
+  news-rail/
   operator-lab/
   portfolio-live/
+  rebalance/
+  smart-money/
   sosovalue-indexes/
+  strategy-rack/
   terminal.tsx
 lib/
   market.ts
@@ -437,18 +354,22 @@ public/
   tokens/
 ```
 
-## Status
+## Notes On Data Honesty
 
-Current state of the project:
+The app separates:
 
-- live SoSoValue integration
-- live SoDEX market integration
-- live SoDEX account integration
-- staged and live execution flows
-- builder-ready demo surface for the hackathon
+- live external data
+- local operator state
+- derived analytics
 
-## License
+That distinction matters for judging. If something is derived, the UI should treat it as derived logic, not pretend it came directly from the exchange.
 
-No license file is included yet.
+## Current Status
 
-Add an explicit license before broader open-source distribution beyond the buildathon.
+Current repo state now emphasizes:
+
+- cleaner main navigation
+- fewer decorative pages
+- stronger utility around SoDEX execution
+- more direct inspiration from serious trading repos
+- hackathon-friendly story with clearer product focus
